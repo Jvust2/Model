@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>星模 · Drive AI Runtime</title>
+  <meta name="description" content="模型留在 Google Drive，本机 CPU/GPU 负责推理。" />
+  <meta name="theme-color" content="#0b0f1d" />
+  <link rel="icon" href="./assets/star.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./assets/model.css?v=1" />
+</head>
+<body>
+  <header class="site-header shell">
+    <div class="brand">
+      <img src="./assets/star.svg" alt="" />
+      <div>星模<small>DRIVE / LOCAL AI</small></div>
+    </div>
+    <div id="status" role="status" aria-live="polite">准备中</div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="kicker">DRIVE-FIRST · LOCAL COMPUTE</div>
+      <h1>模型留在云端，<br /><span>算力回到你的电脑。</span></h1>
+      <p>
+        扫描 Google Drive 里的 AI 模型元数据；GGUF 首先通过本机 Runtime 启动。
+        默认使用本机 CPU。模型源文件仍以 Drive 为主，不把模型权重提交到 GitHub。
+      </p>
+      <div class="hero-actions">
+        <button id="loginBtn" data-icon="cloud" class="primary" type="button">连接 Google Drive</button>
+        <button id="scanBtn" data-icon="chart" type="button">扫描模型文件夹</button>
+      </div>
+    </section>
+
+    <div id="error" role="alert"></div>
+
+    <section class="control-grid">
+      <div class="panel">
+        <h2>Google Drive 模型库</h2>
+        <div class="field">
+          <label for="folderId">模型根文件夹 ID（可填 root）</label>
+          <input id="folderId" value="root" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="note">
+          扫描只读取文件名、大小、Drive ID 等元数据，不会为了建索引下载整个模型。
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>本机 Runtime</h2>
+        <div class="field">
+          <label for="runtimeUrl">Local Runtime Bridge</label>
+          <input id="runtimeUrl" value="http://127.0.0.1:8765" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="runtime-row">
+          <button id="runtimeCheckBtn" type="button">检查连接</button>
+          <button id="stopBtn" type="button" disabled>停止模型</button>
+          <span id="runtimeState">未连接本地 Runtime</span>
+        </div>
+        <pre id="runtimeLog" class="runtime-log">等待 Runtime 日志…</pre>
+      </div>
+    </section>
+
+    <section>
+      <div class="library-head">
+        <div>
+          <h2>模型库</h2>
+          <p>GGUF 可直接交给 llama.cpp；其他格式先进入索引。</p>
+        </div>
+        <div id="modelCount">0 个模型文件</div>
+      </div>
+      <div id="modelList" class="model-list"></div>
+    </section>
+
+    <div class="note">
+      v0.1 实际运行路径：Google Drive 流式挂载目录 → llama.cpp → 本机 CPU。
+      浏览器 Service Worker 的 Range 读取用于验证 Drive 随机读取能力和后续虚拟文件层。
+    </div>
+  </main>
+
+  <script src="./assets/config.js?v=1"></script>
+  <script src="./assets/model-index.js?v=1"></script>
+  <script src="./assets/drive-client.js?v=1"></script>
+  <script src="./assets/app.js?v=1"></script>
+</body>
+</html>
