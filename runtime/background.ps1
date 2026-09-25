@@ -15,20 +15,6 @@ $trayPidPath = Join-Path $baseDir "tray.pid"
 $siteUrl = "https://jvust2.github.io/Model/"
 $bridgeUrl = "http://127.0.0.1:8765"
 
-function Find-Python {
-    $py = Get-Command "py.exe" -ErrorAction SilentlyContinue
-    if ($py) {
-        return [PSCustomObject]@{ File = $py.Source; PrefixArgs = @("-3") }
-    }
-
-    $python = Get-Command "python.exe" -ErrorAction SilentlyContinue
-    if ($python) {
-        return [PSCustomObject]@{ File = $python.Source; PrefixArgs = @() }
-    }
-
-    throw "Python 3.10+ was not found."
-}
-
 function Read-Config {
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
         throw "Runtime config is missing. Run Install.cmd again."
@@ -37,11 +23,11 @@ function Read-Config {
 }
 
 function Start-Bridge {
-    param($python, $config)
+    param($config)
 
-    $bridgeScript = Join-Path $appDir "local_bridge.py"
-    if (-not (Test-Path -LiteralPath $bridgeScript -PathType Leaf)) {
-        throw "Installed Runtime is incomplete. Run Install.cmd again."
+    $runtimeExe = Join-Path $appDir "ModelRuntime.exe"
+    if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
+        throw "Installed ModelRuntime.exe is missing. Run Install.cmd again."
     }
 
     if (-not (Test-Path -LiteralPath ([string]$config.llamaServerPath) -PathType Leaf)) {
@@ -60,25 +46,7 @@ function Start-Bridge {
     $env:MODEL_READY_WARN_SECONDS = [string]$config.readyWarnSeconds
     $env:MODEL_CACHE_ROOT = $cacheDir
 
-    $prefix = @(
-        @($python.PrefixArgs) |
-            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
-            ForEach-Object { [string]$_ }
-    )
-    $quotedBridge = '"' + $bridgeScript + '"'
-    $argumentLine = (@($prefix) + @($quotedBridge)) -join " "
-
-    $params = @{
-        FilePath = $python.File
-        ArgumentList = $argumentLine
-        WorkingDirectory = $appDir
-        WindowStyle = "Hidden"
-        RedirectStandardOutput = $stdoutPath
-        RedirectStandardError = $stderrPath
-        PassThru = $true
-    }
-
-    return Start-Process @params
+    return Start-Process -FilePath $runtimeExe -WorkingDirectory $appDir -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
 }
 
 function Stop-Bridge($process) {
@@ -109,7 +77,6 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $config = Read-Config
-$python = Find-Python
 $bridgeProcess = $null
 $closing = $false
 $lastStart = [DateTime]::MinValue
@@ -149,7 +116,7 @@ $startBridgeAction = {
 
     $script:lastStart = [DateTime]::Now
     try {
-        $script:bridgeProcess = Start-Bridge $python $config
+        $script:bridgeProcess = Start-Bridge $config
         $statusItem.Text = "Runtime: starting"
     } catch {
         $statusItem.Text = "Runtime: failed"
