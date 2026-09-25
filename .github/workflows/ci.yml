@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "feat/**"
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Python syntax
+        run: python -m py_compile runtime/local_bridge.py
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check assets/config.js
+          node --check assets/model-index.js
+          node --check assets/drive-client.js
+          node --check assets/app.js
+          node --check sw.js
+
+      - name: Verify required project files
+        run: |
+          test -f index.html
+          test -f governance/PROJECT_STATE.md
+          test -f governance/ARCHITECTURE.md
