@@ -54,6 +54,16 @@ jobs:
             if (-not $ok) {
               throw "ModelRuntime.exe health check timed out."
             }
+            $video = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/video/status" -TimeoutSec 3
+            if (-not $video.workflow_resources_ready) {
+              throw "Packaged video workflow resources are missing."
+            }
+            if (-not $video.archive_support) {
+              throw "Packaged Runtime is missing py7zr archive support."
+            }
+            if (($video.supported_adapters | Measure-Object).Count -lt 2) {
+              throw "Expected Wan and Hunyuan video adapters in packaged Runtime."
+            }
           }
           finally {
             if ($p -and -not $p.HasExited) {
