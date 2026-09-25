@@ -3,13 +3,18 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import shutil
+import socket
+import struct
 import subprocess
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.environ.get("MODEL_BRIDGE_PORT", "8765"))
@@ -23,11 +28,33 @@ MODEL_THREADS = int(
         str(max(1, (os.cpu_count() or 4) - 2)),
     )
 )
-MODEL_NO_MMAP = os.environ.get("MODEL_NO_MMAP", "1").lower() not in {
-    "0",
-    "false",
-    "no",
-}
+
+ALLOWED_LOAD_MODES = {"auto", "none", "mmap", "mlock", "mmap+mlock", "dio"}
+
+
+def normalize_load_mode(value: str) -> str:
+    mode = str(value or "none").strip().lower()
+    if mode not in ALLOWED_LOAD_MODES:
+        allowed = ", ".join(sorted(ALLOWED_LOAD_MODES))
+        raise ValueError(f"Invalid MODEL_LOAD_MODE={value!r}. Allowed: {allowed}.")
+    return mode
+
+
+def positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number.") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be > 0.")
+    return value
+
+
+MODEL_LOAD_MODE = normalize_load_mode(os.environ.get("MODEL_LOAD_MODE", "none"))
+MODEL_READY_WARN_SECONDS = positive_float_env("MODEL_READY_WARN_SECONDS", 300.0)
+MODEL_HEALTH_INTERVAL = positive_float_env("MODEL_HEALTH_INTERVAL", 0.5)
+
 DEFAULT_ORIGINS = ",".join(
     [
         "https://jvust2.github.io",
@@ -42,14 +69,67 @@ ALLOWED_ORIGINS = {
 }
 
 
+def resolve_llama_server() -> str | None:
+    configured = str(LLAMA_SERVER_PATH or "").strip()
+    if not configured:
+        return None
+
+    expanded = os.path.expandvars(os.path.expanduser(configured))
+    if os.path.dirname(expanded):
+        candidate = Path(expanded)
+        if candidate.exists() and candidate.is_file():
+            return str(candidate.resolve())
+        return None
+    return shutil.which(expanded)
+
+
+def inspect_gguf(model_path: Path) -> dict:
+    """Read only the fixed GGUF header; never scan tensor payloads."""
+    with model_path.open("rb") as handle:
+        header = handle.read(24)
+
+    if len(header) < 24:
+        raise ValueError("GGUF file is too small to contain a complete header.")
+
+    magic, version, tensor_count, metadata_kv_count = struct.unpack("<4sIQQ", header)
+    if magic != b"GGUF":
+        raise ValueError("File extension is .gguf but the GGUF magic header is missing.")
+
+    return {
+        "format": "gguf",
+        "version": version,
+        "tensor_count": tensor_count,
+        "metadata_kv_count": metadata_kv_count,
+        "file_size": model_path.stat().st_size,
+        "header_bytes_read": len(header),
+    }
+
+
+def llama_health_status() -> dict:
+    url = f"http://127.0.0.1:{MODEL_SERVER_PORT}/health"
+    request = Request(url, method="GET")
+    try:
+        with urlopen(request, timeout=0.75) as response:
+            status = int(response.status)
+            return {"reachable": True, "ready": status == 200, "status": status}
+    except HTTPError as error:
+        return {"reachable": True, "ready": False, "status": int(error.code)}
+    except (URLError, TimeoutError, socket.timeout, OSError):
+        return {"reachable": False, "ready": False, "status": None}
+
+
 class RuntimeState:
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.process: subprocess.Popen[str] | None = None
         self.model: str | None = None
-        self.model_path: str | None = None
+        self.model_relative_path: str | None = None
         self.started_at: float | None = None
-        self.logs: deque[str] = deque(maxlen=200)
+        self.ready_at: float | None = None
+        self.phase = "idle"
+        self.last_error: str | None = None
+        self.exit_code: int | None = None
+        self.logs: deque[str] = deque(maxlen=300)
 
     def append_log(self, line: str) -> None:
         line = line.rstrip()
@@ -62,16 +142,24 @@ class RuntimeState:
         with self.lock:
             process = self.process
             running = bool(process and process.poll() is None)
+            started_at = self.started_at if running else None
+            uptime = max(0.0, time.time() - started_at) if started_at else None
             return {
                 "running": running,
+                "ready": running and self.phase == "ready",
+                "phase": self.phase,
                 "pid": process.pid if running and process else None,
                 "model": self.model if running else None,
-                "model_path": self.model_path if running else None,
-                "started_at": self.started_at if running else None,
+                "model_relative_path": self.model_relative_path if running else None,
+                "started_at": started_at,
+                "ready_at": self.ready_at if running else None,
+                "uptime_seconds": uptime,
                 "server_url": f"http://127.0.0.1:{MODEL_SERVER_PORT}" if running else None,
                 "cpu_threads": MODEL_THREADS,
                 "gpu_layers": MODEL_GPU_LAYERS,
-                "no_mmap": MODEL_NO_MMAP,
+                "load_mode": MODEL_LOAD_MODE,
+                "last_error": self.last_error,
+                "exit_code": self.exit_code,
                 "logs": list(self.logs),
             }
 
@@ -80,8 +168,12 @@ class RuntimeState:
             process = self.process
             self.process = None
             self.model = None
-            self.model_path = None
+            self.model_relative_path = None
             self.started_at = None
+            self.ready_at = None
+            self.phase = "idle"
+            self.last_error = None
+            self.exit_code = None
 
         if not process or process.poll() is not None:
             return
@@ -94,11 +186,17 @@ class RuntimeState:
             process.kill()
             process.wait(timeout=5)
 
-    def start(self, model_path: Path, model_name: str) -> dict:
+    def start(self, model_path: Path, model_name: str, relative_path: str) -> dict:
         self.stop()
 
+        executable = resolve_llama_server()
+        if not executable:
+            raise FileNotFoundError(
+                "llama-server was not found. Set LLAMA_SERVER_PATH to llama-server.exe."
+            )
+
         command = [
-            LLAMA_SERVER_PATH,
+            executable,
             "-m",
             str(model_path),
             "--host",
@@ -109,15 +207,19 @@ class RuntimeState:
             str(MODEL_THREADS),
             "-ngl",
             str(MODEL_GPU_LAYERS),
+            "--load-mode",
+            MODEL_LOAD_MODE,
         ]
-        if MODEL_NO_MMAP:
-            command.append("--no-mmap")
 
         creationflags = 0
         if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
             creationflags = subprocess.CREATE_NO_WINDOW
 
-        self.append_log("Launching: " + " ".join(command))
+        self.append_log(
+            "Launching llama-server: "
+            f"model={model_name} threads={MODEL_THREADS} "
+            f"gpu_layers={MODEL_GPU_LAYERS} load_mode={MODEL_LOAD_MODE}"
+        )
 
         process = subprocess.Popen(
             command,
@@ -133,29 +235,97 @@ class RuntimeState:
         with self.lock:
             self.process = process
             self.model = model_name
-            self.model_path = str(model_path)
+            self.model_relative_path = relative_path
             self.started_at = time.time()
+            self.ready_at = None
+            self.phase = "loading"
+            self.last_error = None
+            self.exit_code = None
 
-        thread = threading.Thread(
-            target=self._read_output,
-            args=(process,),
-            daemon=True,
-        )
-        thread.start()
+        threading.Thread(target=self._read_output, args=(process,), daemon=True).start()
+        threading.Thread(target=self._monitor_ready, args=(process,), daemon=True).start()
 
-        time.sleep(0.25)
-        if process.poll() is not None:
-            raise RuntimeError(
-                "llama-server exited immediately. Check LLAMA_SERVER_PATH and runtime logs."
-            )
+        time.sleep(0.15)
+        exit_code = process.poll()
+        if exit_code is not None:
+            message = f"llama-server exited immediately with code {exit_code}."
+            self._mark_failed(process, message, exit_code)
+            raise RuntimeError(message + " Check runtime logs and LLAMA_SERVER_PATH.")
 
         return self.snapshot()
 
+    def _mark_failed(
+        self, process: subprocess.Popen[str], message: str, exit_code: int | None = None
+    ) -> None:
+        with self.lock:
+            if self.process is not process:
+                return
+            self.phase = "failed"
+            self.last_error = message
+            self.exit_code = exit_code
+        self.append_log(message)
+
+    def _monitor_ready(self, process: subprocess.Popen[str]) -> None:
+        started = time.monotonic()
+        warned = False
+
+        while process.poll() is None:
+            health = llama_health_status()
+            if health["ready"]:
+                with self.lock:
+                    if self.process is not process:
+                        return
+                    self.phase = "ready"
+                    self.ready_at = time.time()
+                    self.last_error = None
+                self.append_log("llama-server is ready (/health = 200).")
+                return
+
+            elapsed = time.monotonic() - started
+            if not warned and elapsed >= MODEL_READY_WARN_SECONDS:
+                warned = True
+                message = (
+                    f"llama-server is still loading after {MODEL_READY_WARN_SECONDS:.0f}s; "
+                    "the process remains running and readiness checks continue."
+                )
+                with self.lock:
+                    if self.process is not process:
+                        return
+                    self.last_error = message
+                self.append_log(message)
+
+            time.sleep(MODEL_HEALTH_INTERVAL)
+
+        exit_code = process.poll()
+        self._mark_failed(
+            process,
+            f"llama-server exited before becoming ready with code {exit_code}.",
+            exit_code,
+        )
+
     def _read_output(self, process: subprocess.Popen[str]) -> None:
-        if not process.stdout:
-            return
-        for line in process.stdout:
-            self.append_log(line)
+        if process.stdout:
+            for line in process.stdout:
+                self.append_log(line)
+
+        exit_code = process.poll()
+        if exit_code is None:
+            try:
+                exit_code = process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                return
+
+        with self.lock:
+            if self.process is not process:
+                return
+            was_ready = self.phase == "ready"
+
+        if was_ready:
+            self._mark_failed(
+                process,
+                f"llama-server exited unexpectedly with code {exit_code}.",
+                exit_code,
+            )
 
 
 STATE = RuntimeState()
@@ -169,7 +339,7 @@ def safe_model_path(relative_path: str) -> Path:
     relative = str(relative_path or "").replace("/", os.sep)
     candidate_rel = Path(relative)
 
-    if candidate_rel.is_absolute() or ".." in candidate_rel.parts:
+    if not relative.strip() or candidate_rel.is_absolute() or ".." in candidate_rel.parts:
         raise ValueError("Invalid relative model path.")
 
     root = Path(MODEL_DRIVE_ROOT).expanduser().resolve()
@@ -184,7 +354,7 @@ def safe_model_path(relative_path: str) -> Path:
         raise ValueError("Model path escapes MODEL_DRIVE_ROOT.")
 
     if candidate.suffix.lower() != ".gguf":
-        raise ValueError("v0.1 only launches GGUF models.")
+        raise ValueError("The local llama.cpp path only launches GGUF models.")
 
     if not candidate.exists() or not candidate.is_file():
         raise FileNotFoundError(
@@ -195,7 +365,7 @@ def safe_model_path(relative_path: str) -> Path:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.1"
+    server_version = "DriveModelBridge/0.2"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -243,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime"})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 2})
             return
 
         if path == "/v1/runtime":
@@ -254,7 +424,13 @@ class Handler(BaseHTTPRequestHandler):
             payload.update(
                 {
                     "drive_root_configured": bool(MODEL_DRIVE_ROOT),
+                    "drive_root_exists": bool(
+                        MODEL_DRIVE_ROOT and Path(MODEL_DRIVE_ROOT).expanduser().exists()
+                    ),
+                    "llama_server_found": resolve_llama_server() is not None,
                     "bridge_port": BRIDGE_PORT,
+                    "model_server_port": MODEL_SERVER_PORT,
+                    "ready_warn_seconds": MODEL_READY_WARN_SECONDS,
                 }
             )
             self._json(200, payload)
@@ -272,18 +448,28 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
 
+            if path == "/v1/models/inspect":
+                relative_path = str(payload.get("relative_path") or "")
+                model_path = safe_model_path(relative_path)
+                self._json(200, {"ok": True, "gguf": inspect_gguf(model_path)})
+                return
+
             if path == "/v1/models/start":
                 relative_path = str(payload.get("relative_path") or "")
                 model_name = str(payload.get("name") or Path(relative_path).name)
                 model_path = safe_model_path(relative_path)
-                result = STATE.start(model_path, model_name)
+                gguf = inspect_gguf(model_path)
+                result = STATE.start(model_path, model_name, relative_path)
                 self._json(
-                    200,
+                    202,
                     {
                         "ok": True,
                         "pid": result["pid"],
                         "model": result["model"],
+                        "phase": result["phase"],
+                        "ready": result["ready"],
                         "server_url": result["server_url"],
+                        "gguf": gguf,
                     },
                 )
                 return
@@ -304,13 +490,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime")
+    print("Drive Model Local Runtime v0.2")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive root:", MODEL_DRIVE_ROOT or "(not configured)")
     print("llama-server:", LLAMA_SERVER_PATH)
+    print("llama-server found:", bool(resolve_llama_server()))
     print("CPU threads:", MODEL_THREADS)
     print("GPU layers:", MODEL_GPU_LAYERS)
-    print("no-mmap:", MODEL_NO_MMAP)
+    print("Load mode:", MODEL_LOAD_MODE)
+    print("Ready warning:", f"{MODEL_READY_WARN_SECONDS:.0f}s")
     print("Allowed origins:", ", ".join(sorted(ALLOWED_ORIGINS)))
 
     server = ThreadingHTTPServer((HOST, BRIDGE_PORT), Handler)

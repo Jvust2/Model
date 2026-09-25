@@ -5,6 +5,7 @@
   let models = [];
   let runtimeBase = "";
   let runtimeState = null;
+  let runtimePollTimer = null;
 
   const $ = id => document.getElementById(id);
 
@@ -37,22 +38,59 @@
     return runtimeBase.replace(/\/$/, "") + path;
   }
 
+  function clearRuntimePoll() {
+    if (runtimePollTimer) {
+      clearTimeout(runtimePollTimer);
+      runtimePollTimer = null;
+    }
+  }
+
+  function scheduleRuntimeRefresh() {
+    clearRuntimePoll();
+    if (runtimeState && runtimeState.running && runtimeState.phase === "loading") {
+      runtimePollTimer = setTimeout(() => {
+        refreshRuntime().catch(() => {});
+      }, 1000);
+    }
+  }
+
+  function runtimeLabel(state) {
+    if (!state) return "未连接本地 Runtime";
+    if (state.running && state.ready) {
+      return "已就绪 · " + (state.model || "GGUF");
+    }
+    if (state.running && state.phase === "loading") {
+      return "加载中 · " + (state.model || "GGUF");
+    }
+    if (state.phase === "failed") return "Runtime 异常";
+    if (state.running) return "运行中 · " + (state.model || "GGUF");
+    return "已连接 · 当前空闲";
+  }
+
+  function runtimeLogText(state) {
+    const lines = [];
+    if (state && state.last_error) lines.push("[bridge] " + state.last_error);
+    if (state && state.logs && state.logs.length) {
+      lines.push(...state.logs.slice(-12));
+    }
+    return lines.length ? lines.join("\n") : "Runtime 已连接，暂无日志。";
+  }
+
   async function refreshRuntime() {
+    clearRuntimePoll();
     try {
       const response = await fetch(runtimeUrl("/v1/runtime"), { cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       runtimeState = await response.json();
-      $("runtimeState").textContent = runtimeState.running
-        ? "运行中 · " + (runtimeState.model || "GGUF")
-        : "已连接 · 当前空闲";
+      $("runtimeState").textContent = runtimeLabel(runtimeState);
+      $("runtimeLog").textContent = runtimeLogText(runtimeState);
       $("stopBtn").disabled = !runtimeState.running;
-      if (runtimeState.logs && runtimeState.logs.length) {
-        $("runtimeLog").textContent = runtimeState.logs.slice(-12).join("\n");
-      }
+      scheduleRuntimeRefresh();
       return true;
     } catch (_) {
       runtimeState = null;
       $("runtimeState").textContent = "未连接本地 Runtime";
+      $("runtimeLog").textContent = "无法读取 Runtime 状态。";
       $("stopBtn").disabled = true;
       return false;
     }
@@ -62,6 +100,39 @@
     runtimeBase = $("runtimeUrl").value.trim() || window.MODEL_CONFIG.runtimeBase;
     localStorage.setItem("model_runtime_base", runtimeBase);
     $("runtimeUrl").value = runtimeBase;
+  }
+
+  async function inspectModel(model, button) {
+    showError("");
+    saveRuntimeBase();
+    button.disabled = true;
+    setStatus("正在检查本机 GGUF 文件…");
+
+    try {
+      const response = await fetch(runtimeUrl("/v1/models/inspect"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relative_path: model.relativePath })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "GGUF 检查失败：" + response.status);
+
+      const info = data.gguf || {};
+      setStatus(
+        "GGUF v" +
+          info.version +
+          " · " +
+          info.tensor_count +
+          " tensors · " +
+          info.metadata_kv_count +
+          " metadata"
+      );
+    } catch (error) {
+      showError(error);
+      setStatus("GGUF 检查失败");
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function renderModels() {
@@ -114,14 +185,12 @@
       const probe = document.createElement("button");
       probe.type = "button";
       probe.dataset.icon = "chart";
-      probe.textContent = "Range 测试";
+      probe.textContent = "Drive Range";
       probe.addEventListener("click", async () => {
         showError("");
         probe.disabled = true;
         try {
-          if (!accessToken) {
-            accessToken = await window.DriveModelClient.getAccessToken();
-          }
+          if (!accessToken) accessToken = await window.DriveModelClient.getAccessToken();
           if (!accessToken) throw new Error("请先连接 Google Drive。");
           const result = await window.DriveModelClient.probeRange(model, accessToken);
           setStatus("Drive Range 成功 · " + result.bytes + " bytes");
@@ -131,8 +200,15 @@
           probe.disabled = false;
         }
       });
-
       actions.appendChild(probe);
+
+      if (model.runnableFormat === "gguf") {
+        const inspect = document.createElement("button");
+        inspect.type = "button";
+        inspect.textContent = "本机检查";
+        inspect.addEventListener("click", () => inspectModel(model, inspect));
+        actions.appendChild(inspect);
+      }
 
       const launch = document.createElement("button");
       launch.type = "button";
@@ -154,9 +230,7 @@
     button.disabled = true;
 
     try {
-      if (!accessToken) {
-        accessToken = await window.DriveModelClient.getAccessToken();
-      }
+      if (!accessToken) accessToken = await window.DriveModelClient.getAccessToken();
       if (!accessToken) throw new Error("尚未获得 Google Drive 授权。");
 
       const rootId = $("folderId").value.trim() || "root";
@@ -167,11 +241,7 @@
         rootId,
         progress => {
           setStatus(
-            "扫描中 · " +
-              progress.scannedFolders +
-              " 文件夹 · " +
-              progress.modelFiles +
-              " 模型"
+            "扫描中 · " + progress.scannedFolders + " 文件夹 · " + progress.modelFiles + " 模型"
           );
         }
       );
@@ -180,11 +250,7 @@
       models = window.DriveModelIndex.flattenModels(result.tree);
       renderModels();
       setStatus(
-        "扫描完成 · " +
-          result.scannedFolders +
-          " 文件夹 · " +
-          result.modelFiles +
-          " 模型"
+        "扫描完成 · " + result.scannedFolders + " 文件夹 · " + result.modelFiles + " 模型"
       );
     } catch (error) {
       showError(error);
@@ -213,11 +279,13 @@
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || "Runtime 启动失败：" + response.status);
-      }
+      if (!response.ok) throw new Error(data.error || "Runtime 启动失败：" + response.status);
 
-      setStatus("本机模型已启动 · PID " + data.pid);
+      setStatus(
+        data.ready
+          ? "本机模型已就绪 · PID " + data.pid
+          : "本机模型正在加载 · PID " + data.pid
+      );
       await refreshRuntime();
     } catch (error) {
       showError(error);
@@ -228,6 +296,7 @@
   async function stopModel() {
     showError("");
     saveRuntimeBase();
+    clearRuntimePoll();
     try {
       const response = await fetch(runtimeUrl("/v1/models/stop"), {
         method: "POST",
