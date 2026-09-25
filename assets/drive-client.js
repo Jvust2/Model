@@ -96,7 +96,7 @@
     return response.json();
   }
 
-  async function listChildren(accessToken, folderId, pageToken = "") {
+  async function listChildren(accessToken, folderId, resourceKey = null, pageToken = "") {
     const params = new URLSearchParams({
       q: "'" + escapeQueryLiteral(folderId) + "' in parents and trashed = false",
       fields:
@@ -154,7 +154,7 @@
 
       let pageToken = "";
       do {
-        const page = await listChildren(accessToken, node.file.id, pageToken);
+        const page = await listChildren(\n          accessToken,\n          node.file.id,\n          node.file.resourceKey || null,\n          pageToken\n        );
         for (const file of page.files || []) {
           const childPath = node.relativePath
             ? node.relativePath + "/" + file.name
