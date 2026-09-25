@@ -58,7 +58,7 @@ class DriveFileSpec:
     @classmethod
     def from_payload(cls, payload: dict) -> "DriveFileSpec":
         file_id = validate_drive_file_id(str(payload.get("drive_file_id") or ""))
-        name = str(payload.get("name") or "model.bin").strip() or "model.bin"
+        name = str(payload.get("file_name") or payload.get("name") or "model.bin").strip() or "model.bin"
 
         size_raw = payload.get("size")
         size = None
