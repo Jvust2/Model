@@ -745,6 +745,12 @@ class Handler(BaseHTTPRequestHandler):
                     str(payload.get("name") or ""),
                     str(payload.get("model_id") or ""),
                 )
+                if video_match:
+                    status = {
+                        "detected": True,
+                        "automatic_launch": True,
+                        "detail": "managed ComfyUI; first run prepares it automatically",
+                    }
                 plan.update(
                     {
                         "drive_api_session": bool(DRIVE_SESSION.access_token),
