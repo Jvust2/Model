@@ -369,6 +369,7 @@
       "工作区：" + (plan.workspace || "generic"),
       "本机检测：" + (status.detected ? "已检测到" : "未检测到"),
       status.detail ? "状态：" + status.detail : "",
+      plan.local_error ? "本机路径：" + plan.local_error : "",
       requirements ? "需要：" + requirements : "",
       plan.note || ""
     ].filter(Boolean).join("\n");
