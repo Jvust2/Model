@@ -104,9 +104,11 @@ Automatic web adapters now include:
 
 For the video adapters, the Drive package remains the catalog/model identity, while Runtime caches the official ComfyUI-compatible backend artifacts required by the selected workflow. This is necessary because the Drive-native training/inference package layout is not identical to ComfyUI's repackaged model layout.
 
+The v0.9 automatic video path currently targets NVIDIA Windows systems.
+
 First video use may download:
 
-- ComfyUI Windows Portable;
+- ComfyUI Windows Portable (NVIDIA cu126);
 - several large model artifacts required by the official workflow.
 
 Those files are cached under `%LOCALAPPDATA%\JvustModel\video` and reused later.
