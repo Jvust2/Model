@@ -570,10 +570,14 @@ class Handler(BaseHTTPRequestHandler):
 
                 local_kind = None
                 local_exists = False
+                local_error = None
                 if package_path:
-                    package = safe_relative_path(package_path)
-                    local_exists = True
-                    local_kind = "directory" if package.is_dir() else "file"
+                    try:
+                        package = safe_relative_path(package_path)
+                        local_exists = True
+                        local_kind = "directory" if package.is_dir() else "file"
+                    except (ValueError, FileNotFoundError) as error:
+                        local_error = str(error)
 
                 plan = model_plan(backend, category)
                 status = backend_status(LLAMA_SERVER_PATH)["backends"].get(
@@ -588,6 +592,7 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "local_exists": local_exists,
                         "local_kind": local_kind,
+                        "local_error": local_error,
                         "backend_status": status,
                     }
                 )
