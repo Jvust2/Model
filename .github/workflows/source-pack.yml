@@ -40,82 +40,82 @@ jobs:
 
           case "${{ matrix.id }}" in
             01_Model)
-              cat > repos.tsv <<'EOF'
-ggml-org/llama.cpp	f805c57a2d0b7cc171e599303ce2040f6e1bfe15
-ollama/ollama	7af393188defd52d370464de0d2064649cab9b41
-mlc-ai/mlc-llm	9fa644f54b04983adea4d0168f49fc6af4a893ba
-vllm-project/vllm	442bd00d9feff7d6a0cebf74248674bad74ec391
-huggingface/transformers	89b6b17574892ec0770551537a3fe69d6886703e
-huggingface/huggingface_hub	f5b624cec1c438ca7285edf1dd815874316261e4
-ggml-org/whisper.cpp	d09f61a708f3487afa956ff578e60eae5e7a233c
-mudler/LocalAI	543fb4bd240e39123ded0b097f0e995b84e38954
-EOF
+              printf '%b\n' \
+                'ggml-org/llama.cpp\tf805c57a2d0b7cc171e599303ce2040f6e1bfe15' \
+                'ollama/ollama\t7af393188defd52d370464de0d2064649cab9b41' \
+                'mlc-ai/mlc-llm\t9fa644f54b04983adea4d0168f49fc6af4a893ba' \
+                'vllm-project/vllm\t442bd00d9feff7d6a0cebf74248674bad74ec391' \
+                'huggingface/transformers\t89b6b17574892ec0770551537a3fe69d6886703e' \
+                'huggingface/huggingface_hub\tf5b624cec1c438ca7285edf1dd815874316261e4' \
+                'ggml-org/whisper.cpp\td09f61a708f3487afa956ff578e60eae5e7a233c' \
+                'mudler/LocalAI\t543fb4bd240e39123ded0b097f0e995b84e38954' \
+                > repos.tsv
               ;;
             02_Book)
-              cat > repos.tsv <<'EOF'
-opendatalab/MinerU	9227669985a7876abe5d3181b1cda11a844e7322
-docling-project/docling	570f956792fcfe8e51bde0f4a79a2ddabc1a061a
-datalab-to/marker	e1a6226adfaab4cd573cfa96e12d60905ee38036
-datalab-to/surya	514b0bf4c58e59d70edd75571c323e6d118762dd
-Unstructured-IO/unstructured	1bedf7be0bea9db5c5dc3a9a2dab83078b4db54d
-pymupdf/PyMuPDF	dfab8cb46aee6c32a8896fd877e87cae329a5268
-ocrmypdf/OCRmyPDF	e59d7627dd7f4e17d117b24f1c636dc37789fa93
-run-llama/llama_index	2b1f239e39d7c96e6a075309cc6697993a7210bf
-qdrant/qdrant	6ab21cac18ebb6f4ae29102c7f8f5cc11affd5de
-infiniflow/ragflow	313ca90f6abd7682fe8523e16fd67b3653a3fa84
-EOF
+              printf '%b\n' \
+                'opendatalab/MinerU\t9227669985a7876abe5d3181b1cda11a844e7322' \
+                'docling-project/docling\t570f956792fcfe8e51bde0f4a79a2ddabc1a061a' \
+                'datalab-to/marker\te1a6226adfaab4cd573cfa96e12d60905ee38036' \
+                'datalab-to/surya\t514b0bf4c58e59d70edd75571c323e6d118762dd' \
+                'Unstructured-IO/unstructured\t1bedf7be0bea9db5c5dc3a9a2dab83078b4db54d' \
+                'pymupdf/PyMuPDF\tdfab8cb46aee6c32a8896fd877e87cae329a5268' \
+                'ocrmypdf/OCRmyPDF\te59d7627dd7f4e17d117b24f1c636dc37789fa93' \
+                'run-llama/llama_index\t2b1f239e39d7c96e6a075309cc6697993a7210bf' \
+                'qdrant/qdrant\t6ab21cac18ebb6f4ae29102c7f8f5cc11affd5de' \
+                'infiniflow/ragflow\t313ca90f6abd7682fe8523e16fd67b3653a3fa84' \
+                > repos.tsv
               ;;
             03_Invest)
-              cat > repos.tsv <<'EOF'
-microsoft/qlib	be725493eb1a6bbb42bf11b37aa7669f59610ff1
-akfamily/akshare	0191689d57c667b7c7a198fd0cf97316837ef311
-vnpy/vnpy	fa5206fe63836f3f8cd1ebd7168fbd19a5e2ff09
-kernc/backtesting.py	ca2e2611621e472542ba90f7243a1fa06a7d7108
-mementum/backtrader	b853d7c90b6721476eb5a5ea3135224e33db1f14
-polakowo/vectorbt	a3c0f40979648585b4581fc4694fd6e92b3fffca
-AI4Finance-Foundation/FinRL	3a0ab5cf3ddf0b59d25f7fd7e435811a18838c6c
-ricequant/rqalpha	0d98adefa87956e26f3e7ca5b26b5f3fc7ca834f
-EOF
+              printf '%b\n' \
+                'microsoft/qlib\tbe725493eb1a6bbb42bf11b37aa7669f59610ff1' \
+                'akfamily/akshare\t0191689d57c667b7c7a198fd0cf97316837ef311' \
+                'vnpy/vnpy\tfa5206fe63836f3f8cd1ebd7168fbd19a5e2ff09' \
+                'kernc/backtesting.py\tca2e2611621e472542ba90f7243a1fa06a7d7108' \
+                'mementum/backtrader\tb853d7c90b6721476eb5a5ea3135224e33db1f14' \
+                'polakowo/vectorbt\ta3c0f40979648585b4581fc4694fd6e92b3fffca' \
+                'AI4Finance-Foundation/FinRL\t3a0ab5cf3ddf0b59d25f7fd7e435811a18838c6c' \
+                'ricequant/rqalpha\t0d98adefa87956e26f3e7ca5b26b5f3fc7ca834f' \
+                > repos.tsv
               ;;
             04_NCMCM)
-              cat > repos.tsv <<'EOF'
-scipy/scipy	c542b6517135dd09c81f00e2e7755b2fbf2f0a72
-scikit-learn/scikit-learn	857849927da6e988d7d026b17aef214d43e5f26e
-statsmodels/statsmodels	d604fd2e4bf7a5065cd979792b66a03514969dd9
-Pyomo/pyomo	e099f6463abd3b17b3231abf108b0a46e9640d1a
-google/or-tools	100f66e6242ab8bf8d32feb8f3bf086db66ae2b5
-anyoptimization/pymoo	23110c155aa8f31b5f1b86928227fb3931ba7f00
-optuna/optuna	c3a315fe793eca7751ac2257e33a531d22d571b8
-EOF
+              printf '%b\n' \
+                'scipy/scipy\tc542b6517135dd09c81f00e2e7755b2fbf2f0a72' \
+                'scikit-learn/scikit-learn\t857849927da6e988d7d026b17aef214d43e5f26e' \
+                'statsmodels/statsmodels\td604fd2e4bf7a5065cd979792b66a03514969dd9' \
+                'Pyomo/pyomo\te099f6463abd3b17b3231abf108b0a46e9640d1a' \
+                'google/or-tools\t100f66e6242ab8bf8d32feb8f3bf086db66ae2b5' \
+                'anyoptimization/pymoo\t23110c155aa8f31b5f1b86928227fb3931ba7f00' \
+                'optuna/optuna\tc3a315fe793eca7751ac2257e33a531d22d571b8' \
+                > repos.tsv
               ;;
             05_Android)
-              cat > repos.tsv <<'EOF'
-android/nowinandroid	a49ed253d75e61a2b6ab80a8da677b57437b08eb
-android/architecture-samples	ee66e1526b84c026615df032c705842b7d2a521f
-android/compose-samples	0bbd72d69834ec86a9a72bd3513118755fb286c5
-androidx/androidx	64f092c659e93a3187c7f75c8b1a2bff3c7cb7c9
-Genymobile/scrcpy	19c1261d2e2cbf2b5e6a71a8b64cc1dd3ede06ac
-tailscale/tailscale	d229a06f9a4b2340f0749288df0ac4f6de223acd
-google-ai-edge/mediapipe	0a8c1e8b84ea1979e16ebe985bd18f3b50f519ff
-EOF
+              printf '%b\n' \
+                'android/nowinandroid\ta49ed253d75e61a2b6ab80a8da677b57437b08eb' \
+                'android/architecture-samples\tee66e1526b84c026615df032c705842b7d2a521f' \
+                'android/compose-samples\t0bbd72d69834ec86a9a72bd3513118755fb286c5' \
+                'androidx/androidx\t64f092c659e93a3187c7f75c8b1a2bff3c7cb7c9' \
+                'Genymobile/scrcpy\t19c1261d2e2cbf2b5e6a71a8b64cc1dd3ede06ac' \
+                'tailscale/tailscale\td229a06f9a4b2340f0749288df0ac4f6de223acd' \
+                'google-ai-edge/mediapipe\t0a8c1e8b84ea1979e16ebe985bd18f3b50f519ff' \
+                > repos.tsv
               ;;
             06_AutoFlow)
-              cat > repos.tsv <<'EOF'
-pywinauto/pywinauto	18d2a95cebed2f0061ab4e4c80c3a76ece5dd4f3
-microsoft/playwright	48844a570e64826cfbc50c653208ee7f9415b82d
-browser-use/browser-use	d8110c5ff87ccba887aaa726cdb780f2f84bef8d
-openinterpreter/openinterpreter	5b07159c477920c159d8892d112b480e7307f257
-PrefectHQ/prefect	148e99781fb05df258d3efddb5ef4fee0b61c9f2
-mem0ai/mem0	989c7da0fc8e4df6342dbb8c448af9816d60d24c
-rclone/rclone	ce5351c52e94ac0df65e4781f65f55291bae4f80
-EOF
+              printf '%b\n' \
+                'pywinauto/pywinauto\t18d2a95cebed2f0061ab4e4c80c3a76ece5dd4f3' \
+                'microsoft/playwright\t48844a570e64826cfbc50c653208ee7f9415b82d' \
+                'browser-use/browser-use\td8110c5ff87ccba887aaa726cdb780f2f84bef8d' \
+                'openinterpreter/openinterpreter\t5b07159c477920c159d8892d112b480e7307f257' \
+                'PrefectHQ/prefect\t148e99781fb05df258d3efddb5ef4fee0b61c9f2' \
+                'mem0ai/mem0\t989c7da0fc8e4df6342dbb8c448af9816d60d24c' \
+                'rclone/rclone\tce5351c52e94ac0df65e4781f65f55291bae4f80' \
+                > repos.tsv
               ;;
             07_Live)
-              cat > repos.tsv <<'EOF'
-godotengine/godot	30caae98b79ec7e75e5f893290a51b4048eaa141
-Inochi2D/inochi2d	ba2b1413c68d9f7bf575fef790ba0c35715558db
-LorisYounger/VPet	4f5f4dead067dea1f3be2e6c6fae415cef901cee
-EOF
+              printf '%b\n' \
+                'godotengine/godot\t30caae98b79ec7e75e5f893290a51b4048eaa141' \
+                'Inochi2D/inochi2d\tba2b1413c68d9f7bf575fef790ba0c35715558db' \
+                'LorisYounger/VPet\t4f5f4dead067dea1f3be2e6c6fae415cef901cee' \
+                > repos.tsv
               ;;
           esac
 
@@ -143,13 +143,13 @@ EOF
             sha256sum *.zip > SHA256SUMS.txt
           )
 
-          cat > bundle/README.txt <<'EOF'
-These are exact GitHub repository source snapshots pinned to commit SHA.
-Each nested ZIP is the complete repository archive produced by GitHub for that commit.
-Included: tracked repository files, source code, docs, tests, build files, license files and Git LFS pointer files.
-Not included: .git history/object database, release binaries, external model weights, package-manager caches, or the contents of external Git submodules beyond the gitlink/.gitmodules references stored in the repository.
-Use MANIFEST.tsv for repo/commit provenance and SHA256SUMS.txt to verify the nested ZIP files.
-EOF
+          printf '%s\n' \
+            'These are exact GitHub repository source snapshots pinned to commit SHA.' \
+            'Each nested ZIP is the complete repository archive produced by GitHub for that commit.' \
+            'Included: tracked repository files, source code, docs, tests, build files, license files and Git LFS pointer files.' \
+            'Not included: .git history/object database, release binaries, external model weights, package-manager caches, or external Git submodule contents beyond gitlink/.gitmodules references.' \
+            'Use MANIFEST.tsv for provenance and SHA256SUMS.txt to verify nested ZIPs.' \
+            > bundle/README.txt
 
       - name: Upload category source pack
         uses: actions/upload-artifact@v4
