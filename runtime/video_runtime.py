@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - source-tree tests do not require it
 
 
 COMFY_HOST = "127.0.0.1"
-COMFY_PORT = int(os.environ.get("MODEL_COMFYUI_PORT", "8188"))
+COMFY_PORT = int(os.environ.get("MODEL_COMFYUI_PORT", "8189"))
 COMFY_BASE = f"http://{COMFY_HOST}:{COMFY_PORT}"
 
 COMFY_RELEASE_TAG = "v0.37.0"
@@ -120,6 +120,14 @@ def comfy_reachable() -> bool:
         return isinstance(data, dict)
     except Exception:
         return False
+
+
+def nvidia_available() -> bool:
+    candidates = [
+        shutil.which("nvidia-smi"),
+        str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "nvidia-smi.exe"),
+    ]
+    return any(path and Path(path).exists() for path in candidates)
 
 
 def _link_map(workflow: dict) -> dict[int, tuple]:
@@ -541,6 +549,16 @@ class VideoRuntime:
             mode = "ab" if offset and status == 206 else "wb"
             downloaded = offset if mode == "ab" else 0
             total = _content_total(response, downloaded)
+            if total and total > downloaded:
+                remaining = total - downloaded
+                free = shutil.disk_usage(destination.parent).free
+                reserve = 2 * 1024 * 1024 * 1024
+                if free < remaining + reserve:
+                    raise RuntimeError(
+                        "本机缓存空间不足："
+                        f"{label} 还需要约 {remaining / (1024**3):.1f} GB，"
+                        f"当前可用约 {free / (1024**3):.1f} GB。"
+                    )
 
             with self.lock:
                 self.current_file = label
@@ -582,6 +600,12 @@ class VideoRuntime:
         located = self._locate_portable()
         if located:
             return located
+
+        if os.name == "nt" and not nvidia_available():
+            raise RuntimeError(
+                "v0.9 视频自动运行首版需要 NVIDIA GPU/驱动；"
+                "没有检测到 nvidia-smi，因此没有开始下载 ComfyUI。"
+            )
 
         if py7zr is None:
             raise RuntimeError("Standalone Runtime 缺少 7z 解压组件，请更新 Runtime。")
@@ -630,6 +654,7 @@ class VideoRuntime:
                 "--port",
                 str(COMFY_PORT),
                 "--disable-auto-launch",
+                "--windows-standalone-build",
             ]
             process = subprocess.Popen(
                 command,
