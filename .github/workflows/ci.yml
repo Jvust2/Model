@@ -22,7 +22,10 @@ jobs:
       - name: Check Python syntax
         run: python -m py_compile runtime/local_bridge.py
 
-      - name: Run bridge unit tests\n        run: python -m unittest discover -s tests -v\n\n      - name: Check JavaScript syntax
+      - name: Run bridge unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Check JavaScript syntax
         run: |
           node --check assets/config.js
           node --check assets/model-index.js
