@@ -54,10 +54,12 @@ The backend target is selected from model_metadata.json first.
 ### Direct automatic launch
 
 - GGUF through Google Drive API → resumable local cache → llama.cpp.
+- Wan2.2 TI2V 5B through managed ComfyUI.
+- HunyuanVideo 1.5 text-to-video through managed ComfyUI.
 
 ### Backend identified, adapter still required
 
-- ComfyUI
+- Other ComfyUI families
 - Diffusers
 - Transformers
 - PyTorch
@@ -95,3 +97,17 @@ Priority order:
 5. ONNX task adapter framework.
 
 Each adapter should be model-family aware rather than extension-only.
+
+
+## Managed ComfyUI video path
+
+The video web workspace uses a pinned official ComfyUI Windows Portable release and official Comfy-Org workflow templates.
+
+The Drive model package remains the user's model catalog/source identity. For execution, Runtime downloads the ComfyUI-compatible model artifacts declared by the official workflow into a local derived cache. This is intentionally separate from the Drive-native package because the file layout/format expected by ComfyUI can differ.
+
+Current adapters:
+
+- `wan2.2-ti2v-5b`
+- `hunyuanvideo-1.5`
+
+The Hunyuan adapter targets the base 720p output node and prunes the optional super-resolution branch to avoid unnecessary SR model downloads.
