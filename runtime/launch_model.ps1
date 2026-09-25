@@ -81,6 +81,54 @@ function Save-Config($config) {
     $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
 }
 
+function Get-PythonArgumentList($python, [string[]]$ProcessArgs) {
+    return @(
+        @($python.PrefixArgs) + @($ProcessArgs) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+            ForEach-Object { [string]$_ }
+    )
+}
+
+function Assert-PythonVersion($python) {
+    $versionArgs = Get-PythonArgumentList $python @(
+        "-c",
+        "import sys; print(str(sys.version_info.major)+'.'+str(sys.version_info.minor)+'.'+str(sys.version_info.micro))"
+    )
+
+    $versionText = (& $python.File @versionArgs 2>&1 | Select-Object -First 1)
+    if (-not $versionText) {
+        throw "Could not determine Python version."
+    }
+
+    $parts = [string]$versionText -split "\."
+    if ($parts.Count -lt 2) {
+        throw "Unexpected Python version output: $versionText"
+    }
+
+    $major = [int]$parts[0]
+    $minor = [int]$parts[1]
+
+    Write-Host "Python     : $versionText"
+
+    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 10)) {
+        throw "Python 3.10 or newer is required. Detected Python $versionText."
+    }
+}
+
+function Assert-DriveRoot($config) {
+    $rootName = Split-Path -Leaf ([string]$config.driveRoot)
+    $metadataPath = Join-Path ([string]$config.driveRoot) "model_metadata.json"
+
+    if ($rootName -ne "AI-Model-Vault" -and -not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+        Write-Host ""
+        Write-Host "WARNING: The selected Drive root does not look like AI-Model-Vault." -ForegroundColor Yellow
+        Write-Host "Selected   : $($config.driveRoot)" -ForegroundColor Yellow
+        Write-Host "Expected   : your Google Drive for desktop\AI-Model-Vault folder" -ForegroundColor Yellow
+        Write-Host "To change it, run: Model.cmd -ResetConfig" -ForegroundColor Yellow
+        Write-Host ""
+    }
+}
+
 function Test-PublicSite {
     if ($LocalSite) { return $false }
     try {
@@ -91,18 +139,35 @@ function Test-PublicSite {
     }
 }
 
-function Start-PythonProcess($python, [string[]]$ProcessArgs, [string]$workingDirectory) {
-    $allArgs = @(
-        @($python.PrefixArgs) + @($ProcessArgs) |
-            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
-            ForEach-Object { [string]$_ }
-    )
+function Start-PythonProcess(
+    $python,
+    [string[]]$ProcessArgs,
+    [string]$workingDirectory,
+    [string]$stdoutPath = "",
+    [string]$stderrPath = ""
+) {
+    $allArgs = Get-PythonArgumentList $python $ProcessArgs
 
-    if ($allArgs.Count -eq 0) {
-        return Start-Process -FilePath $python.File -WorkingDirectory $workingDirectory -PassThru -WindowStyle Hidden
+    $params = @{
+        FilePath = $python.File
+        WorkingDirectory = $workingDirectory
+        PassThru = $true
+        WindowStyle = "Hidden"
     }
 
-    return Start-Process -FilePath $python.File -ArgumentList $allArgs -WorkingDirectory $workingDirectory -PassThru -WindowStyle Hidden
+    if ($allArgs.Count -gt 0) {
+        $params.ArgumentList = $allArgs
+    }
+
+    if ($stdoutPath) {
+        $params.RedirectStandardOutput = $stdoutPath
+    }
+
+    if ($stderrPath) {
+        $params.RedirectStandardError = $stderrPath
+    }
+
+    return Start-Process @params
 }
 
 if ($SelfTest) {
@@ -143,6 +208,8 @@ if (-not (Test-Config $config)) {
 }
 
 $python = Find-Python
+Assert-PythonVersion $python
+Assert-DriveRoot $config
 
 $env:MODEL_DRIVE_ROOT = $config.driveRoot
 $env:LLAMA_SERVER_PATH = $config.llamaServerPath
@@ -155,6 +222,13 @@ $env:MODEL_READY_WARN_SECONDS = [string]$config.readyWarnSeconds
 $bridgeProcess = $null
 $siteProcess = $null
 
+$logDir = Join-Path $configDir "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$runtimeStdout = Join-Path $logDir "runtime.stdout.log"
+$runtimeStderr = Join-Path $logDir "runtime.stderr.log"
+Remove-Item -LiteralPath $runtimeStdout -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $runtimeStderr -Force -ErrorAction SilentlyContinue
+
 try {
     Write-Host ""
     Write-Host "Model" -ForegroundColor Cyan
@@ -164,13 +238,34 @@ try {
     Write-Host "Config     : $configPath"
     Write-Host ""
 
-    $bridgeProcess = Start-PythonProcess $python @("runtime\local_bridge.py") $repoRoot
+    $bridgeProcess = Start-PythonProcess $python @("runtime\local_bridge.py") $repoRoot $runtimeStdout $runtimeStderr
 
     $bridgeReady = $false
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
         Start-Sleep -Milliseconds 250
         if ($bridgeProcess.HasExited) {
-            throw "Local Runtime exited during startup. Re-run with -ResetConfig if the saved paths changed."
+            Start-Sleep -Milliseconds 150
+            $details = @()
+
+            if (Test-Path -LiteralPath $runtimeStderr) {
+                $details += Get-Content -LiteralPath $runtimeStderr -Tail 40 -ErrorAction SilentlyContinue
+            }
+
+            if (Test-Path -LiteralPath $runtimeStdout) {
+                $details += Get-Content -LiteralPath $runtimeStdout -Tail 40 -ErrorAction SilentlyContinue
+            }
+
+            Write-Host ""
+            Write-Host "Runtime startup diagnostics:" -ForegroundColor Red
+            if ($details.Count -gt 0) {
+                $details | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            } else {
+                Write-Host "(no Python output captured)" -ForegroundColor Red
+            }
+            Write-Host "Logs: $logDir" -ForegroundColor Yellow
+            Write-Host ""
+
+            throw "Local Runtime exited during startup with code $($bridgeProcess.ExitCode)."
         }
         try {
             $health = Invoke-RestMethod -Uri "$bridgeUrl/health" -TimeoutSec 1
