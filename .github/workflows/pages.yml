@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/drive-model-runtime-v1
   workflow_dispatch:
 
 permissions:
