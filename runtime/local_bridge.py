@@ -54,6 +54,7 @@ def positive_float_env(name: str, default: float) -> float:
 MODEL_LOAD_MODE = normalize_load_mode(os.environ.get("MODEL_LOAD_MODE", "none"))
 MODEL_READY_WARN_SECONDS = positive_float_env("MODEL_READY_WARN_SECONDS", 300.0)
 MODEL_HEALTH_INTERVAL = positive_float_env("MODEL_HEALTH_INTERVAL", 0.5)
+MODEL_CHAT_TIMEOUT = positive_float_env("MODEL_CHAT_TIMEOUT", 600.0)
 
 DEFAULT_ORIGINS = ",".join(
     [
@@ -116,6 +117,82 @@ def llama_health_status() -> dict:
         return {"reachable": True, "ready": False, "status": int(error.code)}
     except (URLError, TimeoutError, socket.timeout, OSError):
         return {"reachable": False, "ready": False, "status": None}
+
+
+def build_chat_payload(payload: dict, model_name: str | None) -> dict:
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("messages must be a non-empty array.")
+    if len(messages) > 64:
+        raise ValueError("Too many chat messages; maximum is 64.")
+
+    clean_messages = []
+    total_chars = 0
+    for item in messages:
+        if not isinstance(item, dict):
+            raise ValueError("Each chat message must be an object.")
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"system", "user", "assistant"}:
+            raise ValueError("Chat message role must be system, user, or assistant.")
+        content = item.get("content")
+        if not isinstance(content, str):
+            raise ValueError("Chat message content must be text.")
+        total_chars += len(content)
+        if total_chars > 131072:
+            raise ValueError("Chat history is too large for the local bridge.")
+        clean_messages.append({"role": role, "content": content})
+
+    try:
+        temperature = float(payload.get("temperature", 0.7))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("temperature must be a number.") from exc
+    if not 0 <= temperature <= 2:
+        raise ValueError("temperature must be between 0 and 2.")
+
+    try:
+        max_tokens = int(payload.get("max_tokens", 512))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_tokens must be an integer.") from exc
+    if not 1 <= max_tokens <= 4096:
+        raise ValueError("max_tokens must be between 1 and 4096.")
+
+    return {
+        "model": str(model_name or "local-model"),
+        "messages": clean_messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+
+
+def llama_chat_completion(payload: dict) -> tuple[int, dict]:
+    request = Request(
+        f"http://127.0.0.1:{MODEL_SERVER_PORT}/v1/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer no-key",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=MODEL_CHAT_TIMEOUT) as response:
+            raw = response.read()
+            data = json.loads(raw.decode("utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("llama-server returned a non-object JSON response.")
+            return int(response.status), data
+    except HTTPError as error:
+        raw = error.read()
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except Exception:
+            data = {"error": raw.decode("utf-8", errors="replace") or str(error)}
+        if not isinstance(data, dict):
+            data = {"error": str(data)}
+        return int(error.code), data
+    except (URLError, TimeoutError, socket.timeout, OSError) as error:
+        raise RuntimeError("Could not reach llama-server: " + str(error)) from error
 
 
 class RuntimeState:
@@ -365,7 +442,7 @@ def safe_model_path(relative_path: str) -> Path:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.2"
+    server_version = "DriveModelBridge/0.3"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -394,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0") or "0")
-        if length < 0 or length > 65536:
+        if length < 0 or length > 262144:
             raise ValueError("Request body too large.")
         raw = self.rfile.read(length) if length else b"{}"
         value = json.loads(raw.decode("utf-8"))
@@ -413,7 +490,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 2})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 3})
             return
 
         if path == "/v1/runtime":
@@ -447,6 +524,16 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             payload = self._read_json()
+
+            if path == "/v1/chat/completions":
+                snapshot = STATE.snapshot()
+                if not snapshot["ready"]:
+                    self._json(409, {"error": "Local model is not ready."})
+                    return
+                chat_payload = build_chat_payload(payload, snapshot.get("model"))
+                status, result = llama_chat_completion(chat_payload)
+                self._json(status, result)
+                return
 
             if path == "/v1/models/inspect":
                 relative_path = str(payload.get("relative_path") or "")
@@ -490,7 +577,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.2")
+    print("Drive Model Local Runtime v0.3")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive root:", MODEL_DRIVE_ROOT or "(not configured)")
     print("llama-server:", LLAMA_SERVER_PATH)

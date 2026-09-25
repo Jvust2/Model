@@ -83,5 +83,38 @@ class LoadModeTests(unittest.TestCase):
             bridge.normalize_load_mode("legacy")
 
 
+class ChatPayloadTests(unittest.TestCase):
+    def test_builds_safe_non_streaming_payload(self):
+        payload = bridge.build_chat_payload(
+            {"messages": [{"role": "user", "content": "你好"}]},
+            "qwen.gguf",
+        )
+        self.assertEqual(payload["model"], "qwen.gguf")
+        self.assertEqual(payload["messages"][0]["content"], "你好")
+        self.assertFalse(payload["stream"])
+        self.assertEqual(payload["max_tokens"], 512)
+
+    def test_rejects_unknown_role(self):
+        with self.assertRaises(ValueError):
+            bridge.build_chat_payload(
+                {"messages": [{"role": "tool", "content": "x"}]},
+                "model.gguf",
+            )
+
+    def test_rejects_invalid_temperature(self):
+        with self.assertRaises(ValueError):
+            bridge.build_chat_payload(
+                {"messages": [{"role": "user", "content": "x"}], "temperature": 3},
+                "model.gguf",
+            )
+
+    def test_rejects_invalid_max_tokens(self):
+        with self.assertRaises(ValueError):
+            bridge.build_chat_payload(
+                {"messages": [{"role": "user", "content": "x"}], "max_tokens": 0},
+                "model.gguf",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

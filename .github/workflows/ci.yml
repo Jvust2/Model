@@ -33,8 +33,12 @@ jobs:
           node --check assets/app.js
           node --check sw.js
 
-      - name: Verify required project files
+      - name: Verify website contract
         run: |
           test -f index.html
+          test -f .github/workflows/pages.yml
           test -f governance/PROJECT_STATE.md
           test -f governance/ARCHITECTURE.md
+          grep -q 'id="chatForm"' index.html
+          grep -q '/v1/chat/completions' assets/app.js
+          grep -q '/v1/chat/completions' runtime/local_bridge.py
