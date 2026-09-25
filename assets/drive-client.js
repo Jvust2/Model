@@ -21,7 +21,9 @@
 
   function authorizeDrive() {
     if (!bridge()) throw new Error("未配置 OAuth Bridge。");
-    window.location.href = bridge() + "/auth";
+    const returnTo = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams({ return_to: returnTo });
+    window.location.href = bridge() + "/auth?" + params.toString();
   }
 
   async function getAccessToken() {
