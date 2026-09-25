@@ -32,8 +32,11 @@ For normal use, install the background Runtime once:
 
     runtime\Install.cmd
 
+The packaged installer does **not** require a system Python installation.
+
 The installer:
 
+- uses the bundled standalone `ModelRuntime.exe`;
 - asks for `llama-server.exe` only when it cannot find one automatically;
 - copies the Runtime to `%LOCALAPPDATA%\JvustModel\app`;
 - enables current-user Windows auto-start;
