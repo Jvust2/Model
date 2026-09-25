@@ -98,14 +98,14 @@ jobs:
             )
           fi
 
-          cat > supplement/PROVENANCE.txt <<EOF
-repo=${{ matrix.repo }}
-commit=${{ matrix.sha }}
-category=${{ matrix.category }}
-purpose=Supplement only: actual Git LFS payloads and recursive submodule working-tree contents missing from ordinary GitHub source archives.
-root_lfs_manifest=ROOT_LFS.tsv
-submodule_manifest=SUBMODULES.tsv
-EOF
+          printf '%s\\n' \
+            'repo=${{ matrix.repo }}' \
+            'commit=${{ matrix.sha }}' \
+            'category=${{ matrix.category }}' \
+            'purpose=Supplement only: actual Git LFS payloads and recursive submodule working-tree contents missing from ordinary GitHub source archives.' \
+            'root_lfs_manifest=ROOT_LFS.tsv' \
+            'submodule_manifest=SUBMODULES.tsv' \
+            > supplement/PROVENANCE.txt
 
           find supplement -type f ! -name 'FILES_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > supplement/FILES_SHA256SUMS.txt
 
