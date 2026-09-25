@@ -45,6 +45,22 @@
     return runtimeBase.replace(/\/$/, "") + path;
   }
 
+  async function syncRuntimeDriveSession() {
+    if (!accessToken) {
+      await ensureAccessToken();
+    }
+    const response = await fetch(runtimeUrl("/v1/drive/session"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: accessToken })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || "无法把 Drive 会话同步到本机 Runtime。");
+    }
+    return true;
+  }
+
   function clearRuntimePoll() {
     if (runtimePollTimer) {
       clearTimeout(runtimePollTimer);
@@ -54,7 +70,10 @@
 
   function scheduleRuntimeRefresh() {
     clearRuntimePoll();
-    if (runtimeState && runtimeState.running && runtimeState.phase === "loading") {
+    if (
+      runtimeState &&
+      (runtimeState.phase === "loading" || runtimeState.phase === "downloading")
+    ) {
       runtimePollTimer = setTimeout(() => {
         refreshRuntime().catch(() => {});
       }, 1000);
@@ -63,6 +82,17 @@
 
   function runtimeLabel(state) {
     if (!state) return "未连接本地 Runtime";
+    if (state.phase === "downloading") {
+      const pct =
+        typeof state.download_progress === "number"
+          ? Math.floor(state.download_progress * 100)
+          : null;
+      return (
+        "Drive 下载中 · " +
+        (state.model || "GGUF") +
+        (pct === null ? "" : " · " + pct + "%")
+      );
+    }
     if (state.running && state.ready) {
       return "已就绪 · " + (state.model || "GGUF");
     }
@@ -84,21 +114,9 @@
   }
 
   function updateDriveRuntimeCompatibility() {
-    if (!runtimeState || !runtimeState.drive_root_label) return;
-
-    const cloudRootName = localStorage.getItem("model_drive_root_name") || "";
-    if (
-      cloudRootName &&
-      cloudRootName.toLowerCase() !==
-        String(runtimeState.drive_root_label).toLowerCase()
-    ) {
-      setDriveState(
-        "注意：网页 Drive 根目录是“" +
-          cloudRootName +
-          "”，本机 Runtime 根目录是“" +
-          runtimeState.drive_root_label +
-          "”。启动前请确认它们对应同一文件夹。"
-      );
+    if (!runtimeState) return;
+    if (runtimeState.drive_api_session) {
+      setDriveState("Drive API 已连接 · Runtime 使用本机缓存，不需要 Google Drive 桌面版。");
     }
   }
 
@@ -124,6 +142,12 @@
         backendState = backendResponse.ok ? await backendResponse.json() : null;
       } catch (_) {
         backendState = null;
+      }
+      if (accessToken) {
+        try {
+          await syncRuntimeDriveSession();
+          runtimeState.drive_api_session = true;
+        } catch (_) {}
       }
       $("runtimeState").textContent = runtimeLabel(runtimeState);
       $("runtimeLog").textContent = runtimeLogText(runtimeState);
@@ -320,10 +344,16 @@
     setStatus("正在检查本机 GGUF 文件…");
 
     try {
+      await syncRuntimeDriveSession();
       const response = await fetch(runtimeUrl("/v1/models/inspect"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          drive_file_id: model.representativeFile && model.representativeFile.id,
+          file_name: model.representativeFile && model.representativeFile.name,
+          size: Number(model.representativeFile && model.representativeFile.size || 0),
+          md5_checksum: model.representativeFile && model.representativeFile.md5Checksum,
+          resource_key: model.representativeFile && model.representativeFile.resourceKey,
           relative_path: model.relativePath
         })
       });
@@ -629,14 +659,19 @@
     clearChat();
 
     try {
+      await syncRuntimeDriveSession();
       const response = await fetch(runtimeUrl("/v1/models/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           drive_file_id: model.representativeFile && model.representativeFile.id,
+          file_name: model.representativeFile && model.representativeFile.name,
+          display_name: model.name,
           name: model.name,
           relative_path: model.relativePath,
           size: Number(model.representativeFile && model.representativeFile.size || 0),
+          md5_checksum: model.representativeFile && model.representativeFile.md5Checksum,
+          resource_key: model.representativeFile && model.representativeFile.resourceKey,
           format: model.runnableFormat,
           backend: model.backend,
           category: model.category
@@ -654,9 +689,11 @@
       }
 
       setStatus(
-        data.ready
-          ? "本机模型已就绪 · PID " + data.pid
-          : "本机模型正在加载 · PID " + data.pid
+        data.phase === "downloading"
+          ? "正在从 Google Drive 下载到本机缓存…"
+          : data.ready
+            ? "本机模型已就绪"
+            : "本机模型正在加载"
       );
 
       await refreshRuntime();
@@ -747,7 +784,7 @@
         setDriveState("Drive 已连接 · 已保存模型根目录");
       }
     } else {
-      setDriveState("尚未连接 Google Drive。");
+      setDriveState("尚未连接 Google Drive。连接后模型由 Drive API 读取，不需要桌面版。");
     }
 
     await refreshRuntime();
