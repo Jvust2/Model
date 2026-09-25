@@ -1,0 +1,328 @@
+(function () {
+  "use strict";
+
+  const CONFIG = window.MODEL_CONFIG || {};
+  const SESSION_KEY = "drive_oauth_session";
+  const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+  function bridge() {
+    return CONFIG.oauthBridge || "";
+  }
+
+  function captureOAuthSession() {
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    const session = params.get("oauth_session");
+    if (!session) return false;
+
+    localStorage.setItem(SESSION_KEY, session);
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    return true;
+  }
+
+  function authorizeDrive() {
+    if (!bridge()) throw new Error("未配置 OAuth Bridge。");
+    window.location.href = bridge() + "/auth";
+  }
+
+  async function getAccessToken() {
+    const session = localStorage.getItem(SESSION_KEY);
+    if (!session) return null;
+
+    try {
+      const response = await fetch(bridge() + "/token", {
+        method: "GET",
+        headers: { Authorization: "Bearer " + session },
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) localStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+
+      const data = await response.json();
+      return data.access_token || null;
+    } catch (error) {
+      console.error("获取 Drive Access Token 失败：", error);
+      return null;
+    }
+  }
+
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  function escapeQueryLiteral(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  }
+
+  function authHeaders(accessToken, resourceKey, fileId) {
+    const headers = { Authorization: "Bearer " + accessToken };
+    if (resourceKey && fileId) {
+      headers["X-Goog-Drive-Resource-Keys"] = fileId + "/" + resourceKey;
+    }
+    return headers;
+  }
+
+  async function fetchMetadata(accessToken, fileId, resourceKey = null) {
+    const fields = [
+      "id",
+      "name",
+      "mimeType",
+      "size",
+      "modifiedTime",
+      "md5Checksum",
+      "resourceKey",
+      "parents",
+      "driveId",
+      "capabilities"
+    ].join(",");
+
+    const params = new URLSearchParams({
+      supportsAllDrives: "true",
+      fields
+    });
+
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files/" +
+        encodeURIComponent(fileId || "root") +
+        "?" +
+        params.toString(),
+      {
+        headers: authHeaders(accessToken, resourceKey, fileId),
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("读取 Drive 文件元数据失败：" + response.status);
+    }
+    return response.json();
+  }
+
+  async function listChildren(accessToken, folderId, resourceKey = null, pageToken = "") {
+    const params = new URLSearchParams({
+      q: "'" + escapeQueryLiteral(folderId) + "' in parents and trashed = false",
+      fields:
+        "nextPageToken,files(id,name,mimeType,size,modifiedTime,md5Checksum,resourceKey,parents,driveId,capabilities)",
+      pageSize: "1000",
+      orderBy: "folder,name",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true"
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files?" + params.toString(),
+      {
+        headers: { Authorization: "Bearer " + accessToken },
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("读取 Drive 文件夹失败：" + response.status);
+    }
+    return response.json();
+  }
+
+  async function findFolderByName(accessToken, name, parentId = "root") {
+    if (!accessToken) throw new Error("Google Drive 尚未授权。");
+
+    const folderName = String(name || "").trim();
+    const parent = String(parentId || "root").trim() || "root";
+    if (!folderName) throw new Error("文件夹名称不能为空。");
+
+    const query = [
+      "mimeType = '" + FOLDER_MIME + "'",
+      "name = '" + escapeQueryLiteral(folderName) + "'",
+      "'" + escapeQueryLiteral(parent) + "' in parents",
+      "trashed = false"
+    ].join(" and ");
+
+    const params = new URLSearchParams({
+      q: query,
+      fields: "files(id,name,mimeType,modifiedTime,resourceKey,parents,driveId)",
+      pageSize: "100",
+      orderBy: "modifiedTime desc",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true"
+    });
+
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files?" + params.toString(),
+      {
+        headers: { Authorization: "Bearer " + accessToken },
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("查找 Drive 文件夹失败：" + response.status);
+    }
+
+    const data = await response.json();
+    const folders = Array.isArray(data.files) ? data.files : [];
+    return {
+      folder: folders[0] || null,
+      matches: folders
+    };
+  }
+
+  async function scanModelTree(accessToken, requestedRootId, onProgress) {
+    if (!accessToken) throw new Error("Google Drive 尚未授权。");
+
+    const rootId = String(requestedRootId || "root").trim() || "root";
+    const rootFile = await fetchMetadata(accessToken, rootId);
+    if (rootFile.mimeType !== FOLDER_MIME) {
+      throw new Error("指定的 Drive ID 不是文件夹。");
+    }
+
+    const rootNode = {
+      file: rootFile,
+      relativePath: "",
+      scanned: false,
+      children: []
+    };
+
+    const queue = [rootNode];
+    let scannedFolders = 0;
+    let modelFiles = 0;
+    const maxFolders = Number(CONFIG.maxFolders || 2000);
+    const maxModelFiles = Number(CONFIG.maxModelFiles || 20000);
+
+    while (queue.length) {
+      const node = queue.shift();
+      scannedFolders += 1;
+
+      if (scannedFolders > maxFolders) {
+        throw new Error("文件夹数量超过安全上限 " + maxFolders + "。");
+      }
+
+      let pageToken = "";
+      do {
+        const page = await listChildren(
+          accessToken,
+          node.file.id,
+          node.file.resourceKey || null,
+          pageToken
+        );
+
+        for (const file of page.files || []) {
+          const childPath = node.relativePath
+            ? node.relativePath + "/" + file.name
+            : file.name;
+
+          if (file.mimeType === FOLDER_MIME) {
+            const child = {
+              file,
+              relativePath: childPath,
+              scanned: false,
+              children: []
+            };
+            node.children.push(child);
+            queue.push(child);
+          } else if (window.DriveModelIndex.isModelFile(file)) {
+            modelFiles += 1;
+            if (modelFiles > maxModelFiles) {
+              throw new Error("模型文件数量超过安全上限 " + maxModelFiles + "。");
+            }
+            node.children.push({
+              file,
+              relativePath: childPath,
+              scanned: true,
+              children: []
+            });
+          }
+        }
+
+        pageToken = page.nextPageToken || "";
+      } while (pageToken);
+
+      node.scanned = true;
+      if (typeof onProgress === "function") {
+        onProgress({
+          scannedFolders,
+          modelFiles,
+          currentFolder: node.file.name
+        });
+      }
+    }
+
+    return {
+      rootFolder: rootFile,
+      tree: rootNode,
+      scannedFolders,
+      modelFiles
+    };
+  }
+
+  async function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return false;
+    try {
+      await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+      await navigator.serviceWorker.ready;
+      return true;
+    } catch (error) {
+      console.warn("Service Worker 初始化失败：", error);
+      return false;
+    }
+  }
+
+  async function setServiceWorkerToken(accessToken) {
+    if (!("serviceWorker" in navigator) || !accessToken) return false;
+    const registration = await navigator.serviceWorker.ready;
+    const worker =
+      navigator.serviceWorker.controller ||
+      registration.active ||
+      registration.waiting;
+
+    if (!worker) return false;
+    worker.postMessage({ type: "SET_TOKEN", token: accessToken });
+    return true;
+  }
+
+  async function probeRange(file, accessToken) {
+    if (!file || !file.id || !Number(file.size)) {
+      throw new Error("该文件缺少 Drive ID 或大小。");
+    }
+
+    await setServiceWorkerToken(accessToken);
+
+    const bytes = Number(CONFIG.rangeProbeBytes || 4096);
+    const params = new URLSearchParams({ size: String(file.size) });
+    if (file.resourceKey) params.set("resourceKey", file.resourceKey);
+
+    const response = await fetch(
+      "./drive-model/" + encodeURIComponent(file.id) + "?" + params.toString(),
+      {
+        headers: { Range: "bytes=0-" + (bytes - 1) },
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok && response.status !== 206) {
+      throw new Error("Range 测试失败：" + response.status);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return {
+      status: response.status,
+      bytes: buffer.byteLength,
+      contentRange: response.headers.get("Content-Range") || ""
+    };
+  }
+
+  window.DriveModelClient = {
+    authorizeDrive,
+    captureOAuthSession,
+    clearSession,
+    fetchMetadata,
+    findFolderByName,
+    getAccessToken,
+    probeRange,
+    registerServiceWorker,
+    scanModelTree,
+    setServiceWorkerToken
+  };
+})();
