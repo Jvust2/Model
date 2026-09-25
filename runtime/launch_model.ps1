@@ -1,7 +1,8 @@
 param(
     [switch]$ResetConfig,
     [switch]$LocalSite,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,6 +103,24 @@ function Start-PythonProcess($python, [string[]]$ProcessArgs, [string]$workingDi
     }
 
     return Start-Process -FilePath $python.File -ArgumentList $allArgs -WorkingDirectory $workingDirectory -PassThru -WindowStyle Hidden
+}
+
+if ($SelfTest) {
+    $hostExecutable = (Get-Process -Id $PID).Path
+    $fakePython = [PSCustomObject]@{
+        File = $hostExecutable
+        PrefixArgs = @()
+    }
+
+    $testProcess = Start-PythonProcess $fakePython @("-NoProfile", "-Command", "exit 0") $repoRoot
+    $testProcess.WaitForExit()
+
+    if ($testProcess.ExitCode -ne 0) {
+        throw "Start-PythonProcess self-test failed."
+    }
+
+    Write-Host "Start-PythonProcess self-test passed."
+    exit 0
 }
 
 if ($ResetConfig -and (Test-Path -LiteralPath $configPath)) {
