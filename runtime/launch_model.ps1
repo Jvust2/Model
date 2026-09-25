@@ -90,10 +90,17 @@ function Test-PublicSite {
     }
 }
 
-function Start-PythonProcess($python, [string[]]$args, [string]$workingDirectory) {
-    $allArgs = @()
-    $allArgs += $python.PrefixArgs
-    $allArgs += $args
+function Start-PythonProcess($python, [string[]]$ProcessArgs, [string]$workingDirectory) {
+    $allArgs = @(
+        @($python.PrefixArgs) + @($ProcessArgs) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+            ForEach-Object { [string]$_ }
+    )
+
+    if ($allArgs.Count -eq 0) {
+        return Start-Process -FilePath $python.File -WorkingDirectory $workingDirectory -PassThru -WindowStyle Hidden
+    }
+
     return Start-Process -FilePath $python.File -ArgumentList $allArgs -WorkingDirectory $workingDirectory -PassThru -WindowStyle Hidden
 }
 
