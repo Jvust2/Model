@@ -7,7 +7,7 @@
   <meta name="description" content="通过 Google Drive API 浏览模型，本机 CPU/GPU 负责推理，并直接在网页聊天。" />
   <meta name="theme-color" content="#0b0f1d" />
   <link rel="icon" href="./assets/star.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/model.css?v=9" />
+  <link rel="stylesheet" href="./assets/model.css?v=10" />
 </head>
 <body>
   <header class="site-header shell">
@@ -24,7 +24,7 @@
       <h1>Drive 里是一套模型库，<br /><span>网站自动判断该用哪个后端。</span></h1>
       <p>
         Google Drive API 负责模型发现、元数据和模型文件读取；网站读取 AI-Model-Vault/model_metadata.json，
-        把分片权重归并成模型包。GGUF 首次启动时由 localhost Runtime 直接从 Drive API 下载到本机缓存，不需要 Google Drive 桌面版。
+        把分片权重归并成模型包。GGUF 可直接聊天；已适配的 Wan2.2 / HunyuanVideo 视频模型可直接进入网页视频工作区。
       </p>
       <div class="hero-actions">
         <button id="loginBtn" data-icon="cloud" class="primary" type="button">连接 Google Drive</button>
@@ -91,6 +91,59 @@
       </form>
     </section>
 
+    <section id="videoWorkspace" class="video-panel" hidden aria-labelledby="videoTitle">
+      <div class="video-head">
+        <div>
+          <div class="kicker">LOCAL VIDEO</div>
+          <h2 id="videoTitle">本机工作区 · Video</h2>
+          <p id="videoModelLabel">从模型库选择已适配的视频模型。</p>
+        </div>
+        <button id="videoCloseBtn" type="button">关闭工作区</button>
+      </div>
+
+      <div class="video-body">
+        <div class="video-form">
+          <div class="field">
+            <label for="videoPrompt">视频提示词</label>
+            <textarea id="videoPrompt" rows="5" maxlength="12000" placeholder="描述画面、主体、动作、镜头运动、光线和风格…"></textarea>
+          </div>
+
+          <div class="field">
+            <label for="videoNegative">负面提示词（可选）</label>
+            <textarea id="videoNegative" rows="2" maxlength="6000" placeholder="不希望出现的内容…"></textarea>
+          </div>
+
+          <div class="video-settings">
+            <label>宽度 <input id="videoWidth" type="number" min="256" max="1920" step="16" value="832" /></label>
+            <label>高度 <input id="videoHeight" type="number" min="256" max="1080" step="16" value="480" /></label>
+            <label>帧数 <input id="videoFrames" type="number" min="9" max="241" step="4" value="49" /></label>
+            <label>FPS <input id="videoFps" type="number" min="1" max="60" step="1" value="24" /></label>
+            <label>Steps <input id="videoSteps" type="number" min="1" max="100" step="1" value="20" /></label>
+            <label>CFG <input id="videoCfg" type="number" min="0" max="20" step="0.5" value="5" /></label>
+            <label>Seed <input id="videoSeed" type="number" step="1" placeholder="随机" /></label>
+          </div>
+
+          <div class="video-actions">
+            <button id="videoGenerateBtn" class="primary" data-icon="play" type="button">生成视频</button>
+            <button id="videoStopBtn" type="button" disabled>停止任务</button>
+          </div>
+
+          <div id="videoStatus" class="video-status">等待选择视频模型。</div>
+          <div class="video-progress-track" aria-hidden="true">
+            <div id="videoProgressBar" class="video-progress-bar"></div>
+          </div>
+          <div id="videoFirstRunNote" class="note">
+            首次生成会自动准备 ComfyUI Windows Portable 和该工作流需要的后端模型文件，下载量可能很大；完成后会复用本机缓存。
+          </div>
+        </div>
+
+        <div class="video-preview">
+          <div id="videoEmpty" class="video-empty">生成完成后，视频会直接显示在这里。</div>
+          <video id="videoResult" controls playsinline preload="metadata" hidden></video>
+        </div>
+      </div>
+    </section>
+
     <section>
       <div class="library-head">
         <div>
@@ -107,9 +160,9 @@
     </div>
   </main>
 
-  <script src="./assets/config.js?v=9"></script>
-  <script src="./assets/model-index.js?v=9"></script>
-  <script src="./assets/drive-client.js?v=9"></script>
-  <script src="./assets/app.js?v=9"></script>
+  <script src="./assets/config.js?v=10"></script>
+  <script src="./assets/model-index.js?v=10"></script>
+  <script src="./assets/drive-client.js?v=10"></script>
+  <script src="./assets/app.js?v=10"></script>
 </body>
 </html>

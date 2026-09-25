@@ -96,9 +96,37 @@ Current targets:
 - ONNX → ONNX Runtime
 - TFLite → TFLite
 
-Only GGUF currently has the complete automatic Drive-download-to-launch path.
+Automatic web adapters now include:
+
+- GGUF → Drive API cache → llama.cpp → web chat.
+- Wan2.2 TI2V 5B → managed ComfyUI → web video workspace.
+- HunyuanVideo 1.5 T2V → managed ComfyUI → web video workspace.
+
+For the video adapters, the Drive package remains the catalog/model identity, while Runtime caches the official ComfyUI-compatible backend artifacts required by the selected workflow. This is necessary because the Drive-native training/inference package layout is not identical to ComfyUI's repackaged model layout.
+
+The v0.9 automatic video path currently targets NVIDIA Windows systems.
+
+First video use may download:
+
+- ComfyUI Windows Portable (NVIDIA cu126);
+- several large model artifacts required by the official workflow.
+
+Those files are cached under `%LOCALAPPDATA%\JvustModel\video` and reused later.
 
 See `docs/MULTI_BACKEND.md` for the remaining family adapters.
+
+## Video workspace
+
+Select an adapted video model in the model library and click **使用视频模型**.
+
+The web workspace exposes prompt, negative prompt, resolution, frames, FPS, steps, CFG and seed. Runtime then prepares ComfyUI, queues the official workflow, tracks progress and returns the generated video directly to the browser.
+
+Current direct video adapters:
+
+- Wan2.2-TI2V-5B
+- HunyuanVideo-1.5
+
+Video generation is hardware-intensive; successful execution depends on available GPU/VRAM/RAM/disk and the selected settings.
 
 ## Website
 

@@ -20,7 +20,7 @@ jobs:
           python-version: "3.11"
 
       - name: Check Python syntax
-        run: python -m py_compile runtime/local_bridge.py runtime/backends.py runtime/drive_cache.py
+        run: python -m py_compile runtime/local_bridge.py runtime/backends.py runtime/drive_cache.py runtime/video_runtime.py
 
       - name: Run bridge unit tests
         run: python -m unittest discover -s tests -v
@@ -64,6 +64,12 @@ jobs:
           if grep -q 'MODEL_DRIVE_ROOT' runtime/launch_model.ps1; then exit 1; fi
           grep -q '/v1/backends' runtime/local_bridge.py
           grep -q '/v1/models/plan' runtime/local_bridge.py
+          grep -q '/v1/video/generate' runtime/local_bridge.py
+          grep -q '/v1/video/status' runtime/local_bridge.py
+          grep -q 'videoWorkspace' index.html
+          grep -q 'generateVideo' assets/app.js
+          test -f runtime/workflows/video_wan2_2_5B_ti2v.json
+          test -f runtime/workflows/video_hunyuan_video_1.5_720p_t2v.json
           grep -q 'loadModelRegistry' assets/drive-client.js
           grep -q 'flattenPackages' assets/model-index.js
 

@@ -10,6 +10,8 @@
   let runtimeReconnectTimer = null;
   let chatBusy = false;
   let chatHistory = [];
+  let selectedVideoModel = null;
+  let videoPollTimer = null;
 
   const $ = id => document.getElementById(id);
 
@@ -184,6 +186,16 @@
       updateDriveRuntimeCompatibility();
       updateChatAvailability();
       renderModels();
+      if (
+        runtimeState.video &&
+        !$("videoWorkspace").hidden &&
+        runtimeState.video.running
+      ) {
+        setVideoStatus(
+          videoPhaseText(runtimeState.video),
+          runtimeState.video.download_progress
+        );
+      }
       scheduleRuntimeRefresh();
       return true;
     } catch (_) {
@@ -420,6 +432,273 @@
     return map[model.backend] || null;
   }
 
+  function videoAdapterFor(model) {
+    if (!model) return null;
+    const hay = [
+      model.id,
+      model.name,
+      model.repo,
+      model.packagePath,
+      model.relativePath
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (
+      hay.includes("wan2.2-ti2v-5b") ||
+      hay.includes("wan2.2 ti2v 5b")
+    ) {
+      return {
+        id: "wan2.2-ti2v-5b",
+        width: 832,
+        height: 480,
+        frames: 49,
+        fps: 24,
+        steps: 20,
+        cfg: 5
+      };
+    }
+
+    if (
+      hay.includes("hunyuanvideo-1.5") ||
+      hay.includes("hunyuanvideo 1.5")
+    ) {
+      return {
+        id: "hunyuanvideo-1.5",
+        width: 1280,
+        height: 720,
+        frames: 49,
+        fps: 24,
+        steps: 20,
+        cfg: 6
+      };
+    }
+
+    return null;
+  }
+
+  function stopVideoPolling() {
+    if (videoPollTimer) {
+      clearTimeout(videoPollTimer);
+      videoPollTimer = null;
+    }
+  }
+
+  function setVideoStatus(text, progress = null) {
+    $("videoStatus").textContent = text;
+    const bar = $("videoProgressBar");
+    if (typeof progress === "number" && Number.isFinite(progress)) {
+      bar.style.width = Math.max(0, Math.min(100, progress * 100)) + "%";
+    } else {
+      bar.style.width = "0%";
+    }
+  }
+
+  function openVideoWorkspace(model) {
+    const adapter = videoAdapterFor(model);
+    if (!adapter) {
+      showError("这个视频模型还没有网页自动运行适配器。");
+      return;
+    }
+
+    selectedVideoModel = model;
+    $("videoWorkspace").hidden = false;
+    $("videoModelLabel").textContent =
+      model.name + " · " + adapter.id + " · ComfyUI";
+    $("videoWidth").value = adapter.width;
+    $("videoHeight").value = adapter.height;
+    $("videoFrames").value = adapter.frames;
+    $("videoFps").value = adapter.fps;
+    $("videoSteps").value = adapter.steps;
+    $("videoCfg").value = adapter.cfg;
+    $("videoSeed").value = "";
+    $("videoResult").hidden = true;
+    $("videoResult").removeAttribute("src");
+    $("videoEmpty").hidden = false;
+    $("videoGenerateBtn").disabled = false;
+    $("videoStopBtn").disabled = true;
+    setVideoStatus(
+      "已选择 " + model.name + "。填写提示词后点击“生成视频”。"
+    );
+    $("videoWorkspace").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function closeVideoWorkspace() {
+    stopVideoPolling();
+    selectedVideoModel = null;
+    $("videoWorkspace").hidden = true;
+  }
+
+  function videoPhaseText(state) {
+    const phase = String(state && state.phase || "idle");
+    const detail = String(state && state.detail || "");
+    const labels = {
+      idle: "等待任务",
+      starting: "正在准备视频任务",
+      preparing_comfyui: "首次使用：正在下载 ComfyUI",
+      extracting_comfyui: "正在解压 ComfyUI",
+      starting_comfyui: "正在启动 ComfyUI",
+      downloading_models: "正在准备视频后端模型",
+      building_workflow: "正在构建工作流",
+      queued: "任务已提交，等待生成",
+      generating: "正在生成视频",
+      complete: "视频生成完成",
+      failed: "视频任务失败",
+      cancelled: "视频任务已取消"
+    };
+    return (labels[phase] || phase) + (detail ? " · " + detail : "");
+  }
+
+  async function pollVideoStatus() {
+    stopVideoPolling();
+    try {
+      const response = await fetch(runtimeUrl("/v1/video/status"), {
+        cache: "no-store"
+      });
+      const state = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(state.error || "无法读取视频任务状态。");
+      }
+
+      let progress =
+        typeof state.download_progress === "number"
+          ? state.download_progress
+          : null;
+      let text = videoPhaseText(state);
+
+      if (state.current_file) {
+        text += " · " + state.current_file;
+      }
+      if (
+        state.downloaded_bytes &&
+        state.download_total_bytes &&
+        state.download_total_bytes > 0
+      ) {
+        text +=
+          " · " +
+          formatBytes(state.downloaded_bytes) +
+          " / " +
+          formatBytes(state.download_total_bytes);
+      }
+
+      setVideoStatus(text, progress);
+      $("videoStopBtn").disabled = !state.running;
+      $("videoGenerateBtn").disabled = !!state.running;
+
+      if (state.phase === "complete" && state.job_id) {
+        const video = $("videoResult");
+        video.src =
+          runtimeUrl("/v1/video/file?job_id=") +
+          encodeURIComponent(state.job_id) +
+          "&t=" +
+          Date.now();
+        video.hidden = false;
+        $("videoEmpty").hidden = true;
+        video.load();
+        setStatus("视频生成完成 · " + (state.model || "Video"));
+        return;
+      }
+
+      if (state.phase === "failed") {
+        showError(state.error || "视频生成失败。请展开高级诊断查看 Runtime 日志。");
+        $("videoGenerateBtn").disabled = false;
+        return;
+      }
+
+      if (state.phase === "cancelled") {
+        $("videoGenerateBtn").disabled = false;
+        return;
+      }
+
+      if (state.running) {
+        videoPollTimer = setTimeout(pollVideoStatus, 1500);
+      }
+    } catch (error) {
+      showError(error);
+      $("videoGenerateBtn").disabled = false;
+    }
+  }
+
+  async function generateVideo() {
+    if (!selectedVideoModel) {
+      showError("请先从模型库选择一个已适配的视频模型。");
+      return;
+    }
+
+    if (!runtimeState || Number(runtimeState.runtime_version || 0) < 9) {
+      showError(
+        "当前本机 AI 引擎版本不支持网页视频生成。请安装 Model Runtime v0.9 后重试。"
+      );
+      return;
+    }
+
+    const prompt = $("videoPrompt").value.trim();
+    if (!prompt) {
+      showError("请先填写视频提示词。");
+      $("videoPrompt").focus();
+      return;
+    }
+
+    const seedText = $("videoSeed").value.trim();
+    const payload = {
+      model_id: selectedVideoModel.id,
+      name: selectedVideoModel.name,
+      package_path:
+        selectedVideoModel.packagePath || selectedVideoModel.relativePath,
+      prompt,
+      negative_prompt: $("videoNegative").value.trim(),
+      width: Number($("videoWidth").value),
+      height: Number($("videoHeight").value),
+      frames: Number($("videoFrames").value),
+      fps: Number($("videoFps").value),
+      steps: Number($("videoSteps").value),
+      cfg: Number($("videoCfg").value)
+    };
+    if (seedText) payload.seed = Number(seedText);
+
+    showError("");
+    $("videoGenerateBtn").disabled = true;
+    $("videoStopBtn").disabled = false;
+    $("videoResult").hidden = true;
+    $("videoEmpty").hidden = false;
+    setVideoStatus("正在提交视频任务…");
+    setStatus("正在启动 " + selectedVideoModel.name + " 视频工作流…");
+
+    try {
+      const response = await fetch(runtimeUrl("/v1/video/generate"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "视频任务启动失败：" + response.status);
+      }
+      await pollVideoStatus();
+    } catch (error) {
+      showError(error);
+      $("videoGenerateBtn").disabled = false;
+      $("videoStopBtn").disabled = true;
+      setVideoStatus("视频任务启动失败。");
+    }
+  }
+
+  async function stopVideo() {
+    stopVideoPolling();
+    try {
+      const response = await fetch(runtimeUrl("/v1/video/stop"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "停止视频任务失败。");
+      $("videoGenerateBtn").disabled = false;
+      $("videoStopBtn").disabled = true;
+      setVideoStatus(videoPhaseText(data.video || {}));
+    } catch (error) {
+      showError(error);
+    }
+  }
+
   function planText(plan) {
     const status = plan.backend_status || {};
     const requirements = Array.isArray(plan.requirements)
@@ -450,7 +729,9 @@
           backend: model.backend,
           category: model.category,
           package_path: model.packagePath || model.relativePath,
-          relative_path: model.relativePath
+          relative_path: model.relativePath,
+          name: model.name,
+          model_id: model.id
         })
       });
 
@@ -532,11 +813,17 @@
       const meta = document.createElement("div");
       meta.className = "model-meta";
       const info = backendInfo(model);
+      const videoAdapter = videoAdapterFor(model);
       const pieces = [
         model.category || "unknown",
         model.workspace || "generic",
         model.qualityTier || "",
-        info ? (info.detected ? "后端已检测" : "后端未安装") : ""
+        videoAdapter ? "网页视频适配已支持" : "",
+        videoAdapter
+          ? "首次运行自动准备"
+          : info
+            ? (info.detected ? "后端已检测" : "后端未安装")
+            : ""
       ].filter(Boolean);
       meta.textContent = pieces.join(" · ");
 
@@ -592,6 +879,14 @@
         launch.className = "primary";
         launch.addEventListener("click", () => startModel(model));
         actions.appendChild(launch);
+      } else if (videoAdapter) {
+        const useVideo = document.createElement("button");
+        useVideo.type = "button";
+        useVideo.dataset.icon = "play";
+        useVideo.textContent = "使用视频模型";
+        useVideo.className = "primary";
+        useVideo.addEventListener("click", () => openVideoWorkspace(model));
+        actions.appendChild(useVideo);
       } else {
         const prepare = document.createElement("button");
         prepare.type = "button";
@@ -851,6 +1146,10 @@
       "noopener,noreferrer"
     );
   });
+
+  $("videoGenerateBtn").addEventListener("click", generateVideo);
+  $("videoStopBtn").addEventListener("click", stopVideo);
+  $("videoCloseBtn").addEventListener("click", closeVideoWorkspace);
 
   $("stopBtn").addEventListener("click", stopModel);
   $("clearChatBtn").addEventListener("click", clearChat);

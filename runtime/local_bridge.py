@@ -13,15 +13,17 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 try:
     from .backends import backend_status, model_plan
     from .drive_cache import DriveCache, DriveFileSpec
+    from .video_runtime import VideoRuntime, adapter_for
 except ImportError:
     from backends import backend_status, model_plan
     from drive_cache import DriveCache, DriveFileSpec
+    from video_runtime import VideoRuntime, adapter_for
 
 HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.environ.get("MODEL_BRIDGE_PORT", "8765"))
@@ -544,12 +546,14 @@ class RuntimeState:
 
 
 STATE = RuntimeState()
+VIDEO = VideoRuntime()
 atexit.register(STATE.stop)
+atexit.register(VIDEO.shutdown)
 
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.8"
+    server_version = "DriveModelBridge/0.9"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -586,6 +590,60 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("JSON body must be an object.")
         return value
 
+    def _serve_video_file(self, path: Path) -> None:
+        size = path.stat().st_size
+        start = 0
+        end = size - 1
+        status = 200
+
+        range_header = self.headers.get("Range") or ""
+        if range_header.startswith("bytes="):
+            value = range_header[6:].split(",", 1)[0].strip()
+            left, _, right = value.partition("-")
+            if left:
+                start = int(left)
+            if right:
+                end = int(right)
+            else:
+                end = min(size - 1, start + 8 * 1024 * 1024 - 1)
+            if start < 0 or end < start or start >= size:
+                self.send_response(416)
+                self._cors_headers()
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            end = min(end, size - 1)
+            status = 206
+
+        content_length = end - start + 1
+        suffix = path.suffix.lower()
+        content_type = {
+            ".mp4": "video/mp4",
+            ".webm": "video/webm",
+            ".mkv": "video/x-matroska",
+            ".gif": "image/gif",
+        }.get(suffix, "application/octet-stream")
+
+        self.send_response(status)
+        self._cors_headers()
+        self.send_header("Content-Type", content_type)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(content_length))
+        self.send_header("Cache-Control", "no-store")
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+
+        remaining = content_length
+        with path.open("rb") as handle:
+            handle.seek(start)
+            while remaining > 0:
+                chunk = handle.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
     def do_OPTIONS(self) -> None:
         if not self._origin_allowed():
             self._json(403, {"error": "Origin not allowed."})
@@ -597,7 +655,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 8})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 9})
             return
 
         if path == "/v1/backends":
@@ -620,9 +678,33 @@ class Handler(BaseHTTPRequestHandler):
                     "bridge_port": BRIDGE_PORT,
                     "model_server_port": MODEL_SERVER_PORT,
                     "ready_warn_seconds": MODEL_READY_WARN_SECONDS,
+                    "video": VIDEO.snapshot(),
+                    "runtime_version": 9,
                 }
             )
             self._json(200, payload)
+            return
+
+        if path == "/v1/video/status":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            self._json(200, VIDEO.snapshot())
+            return
+
+        if path == "/v1/video/file":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            query = parse_qs(urlparse(self.path).query)
+            job_id = str((query.get("job_id") or [""])[0])
+            try:
+                video_path = VIDEO.output_file(job_id)
+                self._serve_video_file(video_path)
+            except FileNotFoundError as error:
+                self._json(404, {"error": str(error)})
+            except ValueError as error:
+                self._json(400, {"error": str(error)})
             return
 
         self._json(404, {"error": "Not found."})
@@ -659,11 +741,29 @@ class Handler(BaseHTTPRequestHandler):
                         "detail": "unknown backend",
                     },
                 )
+                video_match = adapter_for(
+                    str(payload.get("name") or ""),
+                    str(payload.get("model_id") or ""),
+                )
+                if video_match:
+                    status = {
+                        "detected": True,
+                        "automatic_launch": True,
+                        "detail": "managed ComfyUI; first run prepares it automatically",
+                    }
                 plan.update(
                     {
                         "drive_api_session": bool(DRIVE_SESSION.access_token),
                         "cache_mode": "drive-api",
                         "backend_status": status,
+                        "video_adapter": (
+                            {
+                                "id": video_match[0],
+                                "automatic_launch": True,
+                            }
+                            if video_match
+                            else None
+                        ),
                     }
                 )
                 self._json(200, {"ok": True, "plan": plan})
@@ -724,6 +824,15 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/v1/video/generate":
+                result = VIDEO.start(payload)
+                self._json(202, {"ok": True, "video": result})
+                return
+
+            if path == "/v1/video/stop":
+                self._json(200, {"ok": True, "video": VIDEO.stop()})
+                return
+
             if path == "/v1/models/stop":
                 STATE.stop()
                 self._json(200, {"ok": True})
@@ -740,7 +849,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.8")
+    print("Drive Model Local Runtime v0.9")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive source: Google Drive API (no desktop mount required)")
     print("Cache root:", DRIVE_CACHE.root)
@@ -758,6 +867,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        VIDEO.shutdown()
         STATE.stop()
         server.server_close()
 

@@ -8,7 +8,7 @@ Build a Drive-first AI model website where Google Drive remains the model vault,
 
 ## Current state
 
-Status: **v0.8 web-first background Runtime**
+Status: **v0.9 web video runtime in validation**
 
 Verified on the live site before this branch:
 
@@ -40,7 +40,14 @@ Implemented on this branch:
 - GGUF launch automatically continues after the Drive download completes.
 - Runtime status exposes download bytes/progress.
 - Existing multi-backend model-package routing remains in place.
-- Non-GGUF family adapters remain a separate next step.
+- Managed ComfyUI video Runtime added.
+- Official ComfyUI templates vendored for Wan2.2 TI2V 5B and HunyuanVideo 1.5 720p T2V.
+- Web video workspace added with prompt/settings/progress/video playback.
+- Runtime exposes /v1/video/generate, /v1/video/status, /v1/video/stop and ranged video output.
+- First video run can install pinned ComfyUI Windows Portable automatically.
+- Video workflow dependencies are downloaded lazily and cached locally.
+- Workflow graph is pruned to the selected output, so Hunyuan's optional 1080p SR branch is not downloaded for the base 720p output.
+- Other ComfyUI/Diffusers model families remain future adapters.
 
 ## Architecture invariants
 
@@ -84,7 +91,7 @@ Implemented on this branch:
 | Backend | Detection | Automatic launch |
 | --- | --- | --- |
 | llama.cpp | yes | yes, via Drive API cache |
-| ComfyUI | yes | not yet |
+| ComfyUI | yes | Wan2.2 TI2V 5B + HunyuanVideo 1.5 T2V |
 | Diffusers | yes | not yet |
 | Transformers | yes | not yet |
 | PyTorch | yes | not yet |
@@ -96,7 +103,8 @@ Implemented on this branch:
 1. Validate a real Drive GGUF download + cache + llama.cpp round trip on Windows.
 2. Add cache management UI: size, clear selected model, clear all.
 3. Add cancellation for active Drive downloads.
-4. Add ComfyUI package download/workflow adapters for Wan2.2 / Qwen-Image / FLUX.
-5. Add Transformers/PyTorch package adapters.
+4. Validate full real-video generation on the user's Windows hardware.
+5. Extend ComfyUI adapters to Wan2.2 T2V/I2V/Animate, Qwen-Image and FLUX.
+6. Add Transformers/PyTorch package adapters.
 6. Add workspace-specific image/video/OCR/embedding/time-series UIs.
 7. Evaluate sparse-cache / virtual filesystem access only after the full-file cache path is stable.
