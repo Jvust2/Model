@@ -1,0 +1,34 @@
+name: runtime-package
+
+on:
+  push:
+    branches:
+      - feat/runtime-download-package
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build runtime ZIP
+        shell: powershell
+        run: |
+          $root = "Model-Runtime"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item -Recurse -Force runtime "$root\runtime"
+          Copy-Item -Force README.md "$root\README.md"
+          Copy-Item -Force index.html "$root\index.html"
+          Copy-Item -Recurse -Force assets "$root\assets"
+          Copy-Item -Force sw.js "$root\sw.js"
+          Compress-Archive -Path "$root\*" -DestinationPath "Model-Runtime-Windows.zip" -Force
+
+      - name: Upload runtime ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Model-Runtime-Windows
+          path: Model-Runtime-Windows.zip
+          if-no-files-found: error
