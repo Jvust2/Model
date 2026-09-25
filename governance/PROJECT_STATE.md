@@ -21,6 +21,7 @@ Verified on the live site before this branch:
 Implemented on this branch:
 
 - Added one-time `runtime/Install.cmd` for normal Windows use.
+- Packaged Windows builds include standalone `ModelRuntime.exe`; user Python is not required.
 - Runtime installs under `%LOCALAPPDATA%\JvustModel\app`.
 - Current-user Windows auto-start is registered under HKCU.
 - A tray Runtime keeps the localhost engine alive and restarts it after failures.
