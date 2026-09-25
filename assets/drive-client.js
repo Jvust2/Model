@@ -128,6 +128,85 @@
     return response.json();
   }
 
+  async function findFileByName(accessToken, name, parentId = "root") {
+    if (!accessToken) throw new Error("Google Drive 尚未授权。");
+
+    const fileName = String(name || "").trim();
+    const parent = String(parentId || "root").trim() || "root";
+    if (!fileName) throw new Error("文件名称不能为空。");
+
+    const query = [
+      "name = '" + escapeQueryLiteral(fileName) + "'",
+      "'" + escapeQueryLiteral(parent) + "' in parents",
+      "trashed = false"
+    ].join(" and ");
+
+    const params = new URLSearchParams({
+      q: query,
+      fields: "files(id,name,mimeType,size,modifiedTime,resourceKey,parents,driveId)",
+      pageSize: "20",
+      orderBy: "modifiedTime desc",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true"
+    });
+
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files?" + params.toString(),
+      {
+        headers: { Authorization: "Bearer " + accessToken },
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("查找 Drive 文件失败：" + response.status);
+    }
+
+    const data = await response.json();
+    const files = Array.isArray(data.files) ? data.files : [];
+    return files[0] || null;
+  }
+
+  async function fetchJsonFile(accessToken, file) {
+    if (!file || !file.id) throw new Error("缺少 Drive JSON 文件 ID。");
+
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files/" +
+        encodeURIComponent(file.id) +
+        "?alt=media&supportsAllDrives=true",
+      {
+        headers: authHeaders(accessToken, file.resourceKey || null, file.id),
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("读取 Drive JSON 文件失败：" + response.status);
+    }
+
+    const data = await response.json();
+    if (!data || typeof data !== "object") {
+      throw new Error("Drive JSON 文件内容无效。");
+    }
+    return data;
+  }
+
+  async function loadModelRegistry(accessToken, rootId) {
+    const file = await findFileByName(
+      accessToken,
+      "model_metadata.json",
+      rootId || "root"
+    );
+    if (!file) return null;
+
+    try {
+      return await fetchJsonFile(accessToken, file);
+    } catch (error) {
+      console.warn("读取 model_metadata.json 失败：", error);
+      return null;
+    }
+  }
+
   async function findFolderByName(accessToken, name, parentId = "root") {
     if (!accessToken) throw new Error("Google Drive 尚未授权。");
 
@@ -320,8 +399,11 @@
     captureOAuthSession,
     clearSession,
     fetchMetadata,
+    fetchJsonFile,
+    findFileByName,
     findFolderByName,
     getAccessToken,
+    loadModelRegistry,
     probeRange,
     registerServiceWorker,
     scanModelTree,
