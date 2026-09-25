@@ -11,7 +11,7 @@ $repoRoot = Split-Path -Parent $scriptDir
 $configDir = Join-Path $env:LOCALAPPDATA "JvustModel"
 $configPath = Join-Path $configDir "runtime.json"
 $publicSite = "https://jvust2.github.io/Model/"
-$localSite = "http://127.0.0.1:8000/"
+$localSiteUrl = "http://127.0.0.1:8000/"
 $bridgeUrl = "http://127.0.0.1:8765"
 
 function Find-Python {
@@ -168,7 +168,7 @@ try {
         if ($siteProcess.HasExited) {
             throw "Local website server exited during startup."
         }
-        $siteUrl = $localSite
+        $siteUrl = $localSiteUrl
         Write-Host "Website    : $siteUrl (local fallback)" -ForegroundColor Yellow
     }
 
