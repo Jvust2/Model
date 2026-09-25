@@ -221,9 +221,25 @@ async function getAccessToken(request, env) {
   const sessionSecret = authorization.slice(7);
   const suppliedHash = await sha256Hex(sessionSecret);
 
-  const sessionRaw = await env.OAUTH_KV.get(
+  let sessionRaw = await env.OAUTH_KV.get(
     "session:" + suppliedHash
   );
+
+  if (!sessionRaw) {
+    const legacyHash = await env.OAUTH_KV.get(
+      "session_hash"
+    );
+
+    if (
+      legacyHash &&
+      suppliedHash === legacyHash &&
+      origin === "https://jvust.github.io"
+    ) {
+      sessionRaw = JSON.stringify({
+        origin: "https://jvust.github.io"
+      });
+    }
+  }
 
   if (!sessionRaw) {
     return json(
