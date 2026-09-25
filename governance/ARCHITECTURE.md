@@ -8,142 +8,120 @@ Browser / GitHub Pages
   ├─ OAuth Bridge
   │     ↓
   │  Google Drive API
-  │     ├─ root-folder discovery
-  │     ├─ recursive file metadata scan
+  │     ├─ folder discovery
+  │     ├─ metadata scan
   │     ├─ model_metadata.json
-  │     └─ Range diagnostics
+  │     └─ short-lived access token
   │
-  ├─ Model package index
-  │     ├─ group weight shards by model directory/family
-  │     ├─ match Drive registry metadata
-  │     └─ select backend + workspace
+  ├─ model package index
   │
   └─ localhost Runtime Bridge (127.0.0.1)
-          ├─ backend detection
-          ├─ execution planning
-          ├─ GGUF inspect/start/stop
-          └─ chat
-              ↓
-        backend adapter
-          ├─ llama.cpp
-          ├─ ComfyUI
-          ├─ Diffusers
-          ├─ Transformers
-          ├─ PyTorch
-          ├─ ONNX Runtime
-          └─ TFLite
-              ↓
-     Google Drive desktop mount
-              ↓
-          Google Drive
+          │
+          ├─ memory-only Drive session
+          ├─ direct Drive API downloader
+          ├─ resumable local cache
+          ├─ backend detection / planning
+          └─ llama.cpp launch / chat
+                    ↓
+          local cache file
+                    ↓
+              llama-server
+                    ↓
+               CPU / GPU
 ```
 
-## Model package model
+Google Drive for desktop is not part of the architecture.
 
-A model is represented as a package, not a single weight file.
+## Why a local cache still exists
 
-Example:
+Google Drive API can provide file bytes and HTTP Range responses, but standard llama.cpp expects a seekable local file and commonly uses native file access/memory mapping.
+
+The current safe baseline is therefore:
+
+1. discover the model through Drive API;
+2. download/resume the selected GGUF into a local cache;
+3. launch llama.cpp from that complete cache file.
+
+This removes the desktop Drive dependency without pretending llama.cpp can natively seek inside a remote HTTP object.
+
+## Browser → Runtime Drive session
+
+The website already obtains a short-lived Drive access token through the OAuth Bridge.
+
+When localhost Runtime is reachable, the browser calls:
 
 ```text
-video_ultra/Wan2.2-Animate-14B/
-  diffusion_pytorch_model-00001-of-00004.safetensors
-  diffusion_pytorch_model-00002-of-00004.safetensors
-  diffusion_pytorch_model-00003-of-00004.safetensors
-  diffusion_pytorch_model-00004-of-00004.safetensors
-  models_t5_umt5-xxl-enc-bf16.pth
+POST /v1/drive/session
+{ "access_token": "..." }
 ```
 
-The browser groups those files into one package and matches the package against `model_metadata.json`.
+The token is:
 
-## Drive registry
+- kept only in Runtime memory;
+- never written to runtime.json;
+- never written to cache metadata;
+- replaced when the website refreshes it.
 
-The website attempts to load:
+## Drive cache
+
+Default Windows cache:
 
 ```text
-AI-Model-Vault/model_metadata.json
+%LOCALAPPDATA%\JvustModel\cache
 ```
 
-Registry fields used by the UI include:
+Cache file names are derived from a SHA-256 hash of Drive file IDs, rather than raw names/IDs.
 
-- id / name / repo
-- category / modality
-- capabilities
-- artifact type
-- quality tier
-- device fit
-- recommended runtime
+Each cached file has a small metadata sidecar containing non-secret data such as Drive file ID, original file name, size and checksum.
 
-If no registry entry matches, path and extension heuristics provide a fallback classification.
+Interrupted downloads use a `.part` file and resume with a Range request when possible.
 
-## Backend routing
-
-Backend selection is registry-first.
-
-Typical routing:
-
-- GGUF / llama.cpp recommendations → llama.cpp
-- image/video packages → ComfyUI or Diffusers
-- OCR/multimodal/RAG → Transformers
-- time-series packages → PyTorch
-- ONNX → ONNX Runtime
-- TFLite → TFLite
-
-The UI exposes a "运行方案" action for every model package. Non-GGUF packages are no longer shown as generically unsupported.
-
-## Runtime Bridge
-
-Current endpoints:
+## Runtime endpoints
 
 - `GET /health`
 - `GET /v1/runtime`
 - `GET /v1/backends`
+- `POST /v1/drive/session`
+- `POST /v1/models/cache`
 - `POST /v1/models/plan`
 - `POST /v1/models/inspect`
 - `POST /v1/models/start`
 - `POST /v1/models/stop`
 - `POST /v1/chat/completions`
 
-`/v1/backends` detects local runtime dependencies without exposing full local paths.
+## GGUF startup
 
-`/v1/models/plan` reports:
+`POST /v1/models/start` receives:
 
-- selected backend
-- workspace
-- backend detection status
-- package visibility in the mounted Drive root
-- required dependencies
-- whether automatic launch is implemented
+- Drive file ID
+- original Drive file name
+- file size
+- optional md5 checksum
+- optional resource key
+- display name / relative path metadata
 
-## Why arbitrary safetensors/PTH/CKPT cannot be launched generically
+If the cache is valid, Runtime launches immediately.
 
-Weight containers do not uniquely define every required model architecture, tokenizer, VAE, scheduler, processor, workflow, node graph or preprocessing pipeline.
+If the file is not cached, Runtime enters `downloading`, streams from Drive API in the background, updates progress, validates the completed GGUF, and then launches llama.cpp.
 
-Therefore Model must use model-family-specific adapters instead of treating an extension as a universal executable format.
+## Multi-backend packages
 
-## Cloud-to-local path invariant
+Model packages remain registry-first:
 
-The website Drive root and `MODEL_DRIVE_ROOT` must refer to the same folder.
+- GGUF → llama.cpp
+- image/video → ComfyUI / Diffusers
+- OCR/multimodal/RAG → Transformers
+- time-series → PyTorch
+- ONNX → ONNX Runtime
 
-Cloud path:
-
-```text
-AI-Model-Vault/video_ultra/Wan2.2-Animate-14B/...
-```
-
-Local mount:
-
-```text
-G:\My Drive\AI-Model-Vault\video_ultra\Wan2.2-Animate-14B\...
-```
-
-Only the relative path is sent to Runtime.
+Only GGUF has a complete direct Drive cache → launch adapter today.
 
 ## Security invariants
 
-1. GitHub never stores model weights or OAuth secrets.
-2. Drive API access remains read-oriented for the website.
-3. Runtime binds to localhost.
-4. Browser origins are checked before local control/chat calls.
-5. Relative paths are confined below `MODEL_DRIVE_ROOT`.
-6. Full local filesystem paths are not returned to the public site.
-7. Backend diagnostics expose detection state, not private paths.
+1. Runtime listens only on localhost.
+2. Browser Origin is checked.
+3. Drive tokens are memory-only.
+4. Drive IDs are validated before use.
+5. Cache paths are generated from hashes, never from untrusted relative paths.
+6. OAuth secrets/tokens are never committed to GitHub.
+7. Cached model files can be deleted without losing canonical data because Drive is authoritative.
