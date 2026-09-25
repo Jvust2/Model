@@ -1,4 +1,4 @@
-name: runtime-package-drive-api
+name: runtime-package-web
 
 on:
   push:
@@ -14,24 +14,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse launcher
+      - name: Parse runtime scripts
         shell: powershell
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path "runtime\launch_model.ps1"),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          $files = @(
+            "runtime\launch_model.ps1",
+            "runtime\install_runtime.ps1",
+            "runtime\background.ps1",
+            "runtime\uninstall_runtime.ps1"
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$file : $($_.Message)" }
+              exit 1
+            }
           }
 
-      - name: Exercise launcher
+      - name: Exercise runtime scripts
         shell: powershell
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\launch_model.ps1 -SelfTest
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\launch_model.ps1 -SelfTest
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\install_runtime.ps1 -SelfTest
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\background.ps1 -SelfTest
 
       - name: Build ZIP
         shell: powershell
@@ -43,11 +54,11 @@ jobs:
           Copy-Item -Force index.html "$root\index.html"
           Copy-Item -Recurse -Force assets "$root\assets"
           Copy-Item -Force sw.js "$root\sw.js"
-          Compress-Archive -Path "$root\*" -DestinationPath "Model-Runtime-DriveAPI.zip" -Force
+          Compress-Archive -Path "$root\*" -DestinationPath "Model-Web-Runtime-v0.8.zip" -Force
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Model-Runtime-DriveAPI
-          path: Model-Runtime-DriveAPI.zip
+          name: Model-Web-Runtime-v0.8
+          path: Model-Web-Runtime-v0.8.zip
           if-no-files-found: error
