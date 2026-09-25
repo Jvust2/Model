@@ -7,6 +7,7 @@
   let runtimeState = null;
   let backendState = null;
   let runtimePollTimer = null;
+  let runtimeReconnectTimer = null;
   let chatBusy = false;
   let chatHistory = [];
 
@@ -65,6 +66,32 @@
     if (runtimePollTimer) {
       clearTimeout(runtimePollTimer);
       runtimePollTimer = null;
+    }
+  }
+
+  function clearRuntimeReconnect() {
+    if (runtimeReconnectTimer) {
+      clearTimeout(runtimeReconnectTimer);
+      runtimeReconnectTimer = null;
+    }
+  }
+
+  function scheduleRuntimeReconnect(delay = 3000) {
+    clearRuntimeReconnect();
+    runtimeReconnectTimer = setTimeout(async () => {
+      const ok = await refreshRuntime();
+      if (!ok) scheduleRuntimeReconnect(Math.min(delay + 1000, 10000));
+    }, delay);
+  }
+
+  function setRuntimeInstalledState(connected) {
+    const install = $("installRuntimeBtn");
+    const hint = $("runtimeHint");
+    if (install) install.hidden = connected;
+    if (hint) {
+      hint.textContent = connected
+        ? "本机 AI 引擎已自动连接。以后直接打开这个网页即可。"
+        : "未检测到本机 AI 引擎。首次安装一次后，以后只需要打开网页。";
     }
   }
 
@@ -149,6 +176,8 @@
           runtimeState.drive_api_session = true;
         } catch (_) {}
       }
+      clearRuntimeReconnect();
+      setRuntimeInstalledState(true);
       $("runtimeState").textContent = runtimeLabel(runtimeState);
       $("runtimeLog").textContent = runtimeLogText(runtimeState);
       $("stopBtn").disabled = !runtimeState.running;
@@ -160,9 +189,11 @@
     } catch (_) {
       runtimeState = null;
       backendState = null;
-      $("runtimeState").textContent = "未连接本地 Runtime";
-      $("runtimeLog").textContent = "无法读取 Runtime 状态。先运行 runtime\\Model.cmd。";
+      $("runtimeState").textContent = "未检测到本机 AI 引擎";
+      $("runtimeLog").textContent =
+        "网页会持续自动重连。若这是第一次使用，请先安装一次 Model Runtime。";
       $("stopBtn").disabled = true;
+      setRuntimeInstalledState(false);
       updateChatAvailability();
       return false;
     }
@@ -557,7 +588,7 @@
         const launch = document.createElement("button");
         launch.type = "button";
         launch.dataset.icon = "play";
-        launch.textContent = "本机启动";
+        launch.textContent = "使用模型";
         launch.className = "primary";
         launch.addEventListener("click", () => startModel(model));
         actions.appendChild(launch);
@@ -682,9 +713,9 @@
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "Runtime 启动失败：" +
+            "模型启动失败：" +
               response.status +
-              "。请确认本机 Drive 根目录与网页选择的 Drive 文件夹一致。"
+              "。请确认本机 AI 引擎已连接，并重新连接 Google Drive 后再试。"
         );
       }
 
@@ -787,7 +818,8 @@
       setDriveState("尚未连接 Google Drive。连接后模型由 Drive API 读取，不需要桌面版。");
     }
 
-    await refreshRuntime();
+    const runtimeOk = await refreshRuntime();
+    if (!runtimeOk) scheduleRuntimeReconnect();
   }
 
   $("loginBtn").addEventListener("click", () => {
@@ -809,6 +841,14 @@
     const ok = await refreshRuntime();
     setStatus(
       ok ? "本机 Runtime 已连接" : "无法连接本机 Runtime"
+    );
+  });
+
+  $("installRuntimeBtn").addEventListener("click", () => {
+    window.open(
+      "https://github.com/Jvust2/Model#one-time-windows-install",
+      "_blank",
+      "noopener,noreferrer"
     );
   });
 
