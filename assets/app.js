@@ -468,7 +468,8 @@
         frames: 49,
         fps: 24,
         steps: 20,
-        cfg: 6
+        cfg: 6,
+        lockResolution: true
       };
     }
 
@@ -505,6 +506,8 @@
       model.name + " · " + adapter.id + " · ComfyUI";
     $("videoWidth").value = adapter.width;
     $("videoHeight").value = adapter.height;
+    $("videoWidth").disabled = !!adapter.lockResolution;
+    $("videoHeight").disabled = !!adapter.lockResolution;
     $("videoFrames").value = adapter.frames;
     $("videoFps").value = adapter.fps;
     $("videoSteps").value = adapter.steps;
@@ -598,8 +601,13 @@
       }
 
       if (state.phase === "failed") {
-        showError(state.error || "视频生成失败。请展开高级诊断查看 Runtime 日志。");
+        const message =
+          state.error ||
+          "视频生成失败。请展开高级诊断查看 Runtime 日志。";
+        showError(message);
+        setVideoStatus("视频任务失败 · " + message);
         $("videoGenerateBtn").disabled = false;
+        $("videoStopBtn").disabled = true;
         return;
       }
 
@@ -638,6 +646,26 @@
     }
 
     const seedText = $("videoSeed").value.trim();
+    const adapter = videoAdapterFor(selectedVideoModel);
+    if (
+      adapter &&
+      adapter.lockResolution &&
+      (Number($("videoWidth").value) !== adapter.width ||
+        Number($("videoHeight").value) !== adapter.height)
+    ) {
+      $("videoWidth").value = adapter.width;
+      $("videoHeight").value = adapter.height;
+      showError(
+        selectedVideoModel.name +
+          " 当前使用固定 " +
+          adapter.width +
+          "×" +
+          adapter.height +
+          " 的官方工作流。"
+      );
+      return;
+    }
+
     const payload = {
       model_id: selectedVideoModel.id,
       name: selectedVideoModel.name,
