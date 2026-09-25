@@ -75,6 +75,10 @@ jobs:
             exit 1
           }
 
+      - name: Exercise launcher process arguments
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\launch_model.ps1 -SelfTest
+
       - name: Verify CMD launcher
         shell: cmd
         run: |
