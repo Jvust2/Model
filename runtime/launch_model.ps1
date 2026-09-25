@@ -193,7 +193,6 @@ $env:MODEL_GPU_LAYERS = [string]$config.gpuLayers
 $env:MODEL_LOAD_MODE = [string]$config.loadMode
 $env:MODEL_READY_WARN_SECONDS = [string]$config.readyWarnSeconds
 $env:MODEL_CACHE_ROOT = $cacheDir
-Remove-Item Env:MODEL_DRIVE_ROOT -ErrorAction SilentlyContinue
 
 $runtimeStdout = Join-Path $logDir "runtime.stdout.log"
 $runtimeStderr = Join-Path $logDir "runtime.stderr.log"
