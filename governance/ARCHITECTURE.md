@@ -8,114 +8,142 @@ Browser / GitHub Pages
   ├─ OAuth Bridge
   │     ↓
   │  Google Drive API
-  │     ├─ folder discovery
-  │     ├─ recursive model metadata scan
+  │     ├─ root-folder discovery
+  │     ├─ recursive file metadata scan
+  │     ├─ model_metadata.json
   │     └─ Range diagnostics
   │
+  ├─ Model package index
+  │     ├─ group weight shards by model directory/family
+  │     ├─ match Drive registry metadata
+  │     └─ select backend + workspace
+  │
   └─ localhost Runtime Bridge (127.0.0.1)
-          │
-          ├─ start / stop / status / inspect / chat
-          │
-          ↓
-      llama-server
-          │
-          ↓
-  Google Drive desktop mount
-          │
-          ↓
-      Google Drive
+          ├─ backend detection
+          ├─ execution planning
+          ├─ GGUF inspect/start/stop
+          └─ chat
+              ↓
+        backend adapter
+          ├─ llama.cpp
+          ├─ ComfyUI
+          ├─ Diffusers
+          ├─ Transformers
+          ├─ PyTorch
+          ├─ ONNX Runtime
+          └─ TFLite
+              ↓
+     Google Drive desktop mount
+              ↓
+          Google Drive
 ```
 
-## Web UI responsibilities
+## Model package model
 
-- Authenticate with Google Drive through the OAuth bridge.
-- Automatically find the preferred root folder name, currently `AI-Model-Vault`.
-- Preserve a manual folder-ID fallback.
-- Recursively enumerate supported model files through Drive API v3.
-- Store metadata-only model index in session storage.
-- Show format, size and Drive-relative path.
-- Send GGUF relative paths to localhost Runtime.
-- Chat through the localhost bridge after llama.cpp becomes ready.
+A model is represented as a package, not a single weight file.
 
-The browser does not receive native filesystem access.
-
-## Drive API responsibilities
-
-Drive API is used for cloud identity and metadata, not inference.
-
-Stored/indexed fields may include:
-
-- Drive file ID
-- file name
-- MIME type
-- size
-- modified time
-- checksum when available
-- resource key
-- relative path
-
-Model bytes are not persisted by the website.
-
-## Service Worker
-
-The Service Worker keeps the Range-only diagnostic path:
+Example:
 
 ```text
-/drive-model/<fileId>?size=<bytes>&resourceKey=<key>
+video_ultra/Wan2.2-Animate-14B/
+  diffusion_pytorch_model-00001-of-00004.safetensors
+  diffusion_pytorch_model-00002-of-00004.safetensors
+  diffusion_pytorch_model-00003-of-00004.safetensors
+  diffusion_pytorch_model-00004-of-00004.safetensors
+  models_t5_umt5-xxl-enc-bf16.pth
 ```
 
-It is for validating Drive byte-range behavior and future virtual-file experiments. A request without a Range header is rejected for model files.
+The browser groups those files into one package and matches the package against `model_metadata.json`.
 
-## Local Runtime Bridge
+## Drive registry
 
-The bridge binds to localhost and exposes:
+The website attempts to load:
+
+```text
+AI-Model-Vault/model_metadata.json
+```
+
+Registry fields used by the UI include:
+
+- id / name / repo
+- category / modality
+- capabilities
+- artifact type
+- quality tier
+- device fit
+- recommended runtime
+
+If no registry entry matches, path and extension heuristics provide a fallback classification.
+
+## Backend routing
+
+Backend selection is registry-first.
+
+Typical routing:
+
+- GGUF / llama.cpp recommendations → llama.cpp
+- image/video packages → ComfyUI or Diffusers
+- OCR/multimodal/RAG → Transformers
+- time-series packages → PyTorch
+- ONNX → ONNX Runtime
+- TFLite → TFLite
+
+The UI exposes a "运行方案" action for every model package. Non-GGUF packages are no longer shown as generically unsupported.
+
+## Runtime Bridge
+
+Current endpoints:
 
 - `GET /health`
 - `GET /v1/runtime`
+- `GET /v1/backends`
+- `POST /v1/models/plan`
 - `POST /v1/models/inspect`
 - `POST /v1/models/start`
 - `POST /v1/models/stop`
 - `POST /v1/chat/completions`
 
-The Runtime receives only a relative model path, resolves it below `MODEL_DRIVE_ROOT`, prevents path escape, validates GGUF, and starts llama.cpp.
+`/v1/backends` detects local runtime dependencies without exposing full local paths.
 
-Runtime status exposes only the local root basename (`drive_root_label`) rather than the full absolute root path.
+`/v1/models/plan` reports:
+
+- selected backend
+- workspace
+- backend detection status
+- package visibility in the mounted Drive root
+- required dependencies
+- whether automatic launch is implemented
+
+## Why arbitrary safetensors/PTH/CKPT cannot be launched generically
+
+Weight containers do not uniquely define every required model architecture, tokenizer, VAE, scheduler, processor, workflow, node graph or preprocessing pipeline.
+
+Therefore Model must use model-family-specific adapters instead of treating an extension as a universal executable format.
 
 ## Cloud-to-local path invariant
 
 The website Drive root and `MODEL_DRIVE_ROOT` must refer to the same folder.
 
-Drive API:
+Cloud path:
 
 ```text
-AI-Model-Vault/
-  llm/Qwen/model.gguf
+AI-Model-Vault/video_ultra/Wan2.2-Animate-14B/...
 ```
 
 Local mount:
 
 ```text
-G:\My Drive\AI-Model-Vault\llm\Qwen\model.gguf
+G:\My Drive\AI-Model-Vault\video_ultra\Wan2.2-Animate-14B\...
 ```
 
-The shared relative path is:
-
-```text
-llm/Qwen/model.gguf
-```
-
-This is the bridge between Drive API discovery and native local inference.
-
-## Why not use Drive API bytes directly for llama.cpp?
-
-Drive API supports byte-range reads, but normal llama.cpp expects a seekable native file and commonly uses OS-level file access/memory mapping. The mounted-drive baseline is therefore kept until a virtual filesystem or sparse-cache adapter is proven.
+Only the relative path is sent to Runtime.
 
 ## Security invariants
 
 1. GitHub never stores model weights or OAuth secrets.
-2. Drive API uses read-only access for the website.
+2. Drive API access remains read-oriented for the website.
 3. Runtime binds to localhost.
-4. Browser Origins are checked before local control/chat requests.
-5. Relative model paths are confined below `MODEL_DRIVE_ROOT`.
-6. The website does not receive local filesystem write access.
-7. Full local absolute model paths are not returned to the public site.
+4. Browser origins are checked before local control/chat calls.
+5. Relative paths are confined below `MODEL_DRIVE_ROOT`.
+6. Full local filesystem paths are not returned to the public site.
+7. Backend diagnostics expose detection state, not private paths.

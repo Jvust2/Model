@@ -73,7 +73,8 @@ main { padding: 30px 0 48px; }
 .model-title { font-weight: 650; overflow-wrap: anywhere; }
 .format-badge { flex: 0 0 auto; padding: 3px 7px; border: 1px solid #f3b4cf40; border-radius: 7px; color: #f7cfe1; background: #f3b4cf0c; font-size: 9px; letter-spacing: 1px; }
 .model-size { flex: 0 0 auto; color: var(--blue); font-size: 11px; }
-.model-path { margin-top: 9px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; overflow-wrap: anywhere; }
+.model-meta { margin-top: 9px; color: var(--blue); font-size: 10px; letter-spacing: .2px; }
+.model-path { margin-top: 6px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; overflow-wrap: anywhere; }
 .model-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
 .empty-state { padding: 42px 20px; text-align: center; color: var(--muted); border: 1px dashed #c5c9f024; border-radius: 15px; }
 .runtime-log { min-height: 74px; max-height: 180px; overflow: auto; margin: 14px 0 0; padding: 11px; border-radius: 10px; background: #090e19; color: #a9b5cc; font: 10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }

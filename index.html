@@ -7,7 +7,7 @@
   <meta name="description" content="通过 Google Drive API 浏览模型，本机 CPU/GPU 负责推理，并直接在网页聊天。" />
   <meta name="theme-color" content="#0b0f1d" />
   <link rel="icon" href="./assets/star.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/model.css?v=6" />
+  <link rel="stylesheet" href="./assets/model.css?v=7" />
 </head>
 <body>
   <header class="site-header shell">
@@ -20,11 +20,11 @@
 
   <main class="shell">
     <section class="hero">
-      <div class="kicker">GOOGLE DRIVE API · LOCAL COMPUTE · WEB CHAT</div>
-      <h1>打开网站看 Drive 模型，<br /><span>点击后在本机运行。</span></h1>
+      <div class="kicker">GOOGLE DRIVE API · MULTI BACKEND · LOCAL COMPUTE</div>
+      <h1>Drive 里是一套模型库，<br /><span>网站自动判断该用哪个后端。</span></h1>
       <p>
-        Google Drive API 负责登录、发现和读取模型元数据；模型推理由本机 Runtime + llama.cpp 完成。
-        GitHub 不保存模型权重。
+        Google Drive API 负责模型发现与元数据；网站读取 AI-Model-Vault/model_metadata.json，
+        把分片权重归并成模型包，并路由到 llama.cpp、ComfyUI、Diffusers、Transformers、PyTorch 或 ONNX Runtime。
       </p>
       <div class="hero-actions">
         <button id="loginBtn" data-icon="cloud" class="primary" type="button">连接 Google Drive</button>
@@ -68,8 +68,8 @@
       <div class="chat-head">
         <div>
           <div class="kicker">LOCAL CHAT</div>
-          <h2 id="chatTitle">本机模型聊天</h2>
-          <p id="chatModelLabel">先从下方模型库启动一个 GGUF。</p>
+          <h2 id="chatTitle">本机工作区 · Chat</h2>
+          <p id="chatModelLabel">GGUF 文本模型可直接聊天；图像/视频/视觉/时序工作区按模型后端逐步接入。</p>
         </div>
         <button id="clearChatBtn" type="button">清空对话</button>
       </div>
@@ -88,21 +88,21 @@
       <div class="library-head">
         <div>
           <h2>模型库</h2>
-          <p>Drive API 只建立索引；GGUF 启动时由本机 Runtime 从 Drive 挂载路径读取。</p>
+          <p>每个卡片代表一个模型包，而不是单个权重分片；“运行方案”会检查对应后端与本机环境。</p>
         </div>
-        <div id="modelCount">0 个模型文件</div>
+        <div id="modelCount">0 个模型包</div>
       </div>
       <div id="modelList" class="model-list"></div>
     </section>
 
     <div class="note footer-note">
-      当前链路：Google Drive API → 网站模型库 → localhost Runtime → llama.cpp → Google Drive 桌面版挂载模型 → 本机 CPU/GPU。
+      当前链路：Google Drive API → 模型包/能力注册表 → localhost Runtime → 对应后端 → Google Drive 桌面版挂载模型 → 本机 CPU/GPU。
     </div>
   </main>
 
-  <script src="./assets/config.js?v=6"></script>
-  <script src="./assets/model-index.js?v=6"></script>
-  <script src="./assets/drive-client.js?v=6"></script>
-  <script src="./assets/app.js?v=6"></script>
+  <script src="./assets/config.js?v=7"></script>
+  <script src="./assets/model-index.js?v=7"></script>
+  <script src="./assets/drive-client.js?v=7"></script>
+  <script src="./assets/app.js?v=7"></script>
 </body>
 </html>

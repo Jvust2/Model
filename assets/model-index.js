@@ -1,8 +1,9 @@
 (function () {
   "use strict";
 
-  const CACHE_KEY = "drive-model-index-v1";
-  const CACHE_VERSION = 1;
+  const CACHE_KEY = "drive-model-index-v2";
+  const CACHE_VERSION = 2;
+
   const MODEL_EXTENSIONS = new Set([
     ".gguf",
     ".safetensors",
@@ -13,6 +14,23 @@
     ".bin",
     ".model",
     ".tflite"
+  ]);
+
+  const CATEGORY_ROOTS = new Set([
+    "image_base",
+    "image_edit",
+    "image_nsfw",
+    "image_anime",
+    "video_light",
+    "video_ultra",
+    "llm",
+    "reasoning",
+    "code",
+    "multimodal",
+    "ocr",
+    "rag",
+    "timeseries",
+    "novel"
   ]);
 
   const FILE_FIELDS = [
@@ -42,15 +60,18 @@
     return dot >= 0 ? value.slice(dot).toLowerCase() : "";
   }
 
+  function normalizeName(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/gguf/g, "")
+      .replace(/[^a-z0-9]+/g, "");
+  }
+
   function isModelFile(file) {
     if (!file || file.mimeType === "application/vnd.google-apps.folder") {
       return false;
     }
     return MODEL_EXTENSIONS.has(extensionOf(file.name));
-  }
-
-  function runnableFormat(file) {
-    return extensionOf(file && file.name) === ".gguf" ? "gguf" : null;
   }
 
   function copyFile(file) {
@@ -69,6 +90,32 @@
       relativePath: String(node.relativePath || ""),
       scanned: node.scanned === true,
       children: (node.children || []).map(copyTree).filter(Boolean)
+    };
+  }
+
+  function sanitizeRegistry(registry) {
+    if (!registry || !Array.isArray(registry.models)) return null;
+    return {
+      schema_version: String(registry.schema_version || ""),
+      generated_at: String(registry.generated_at || ""),
+      purpose: String(registry.purpose || ""),
+      device_profiles: registry.device_profiles || {},
+      models: registry.models.map(entry => ({
+        id: String(entry.id || ""),
+        name: String(entry.name || ""),
+        repo: String(entry.repo || ""),
+        category: String(entry.category || ""),
+        modality: Array.isArray(entry.modality) ? entry.modality.map(String) : [],
+        capabilities: Array.isArray(entry.capabilities) ? entry.capabilities.map(String) : [],
+        artifact_type: String(entry.artifact_type || ""),
+        quality_tier: String(entry.quality_tier || ""),
+        preferred_artifact: String(entry.preferred_artifact || ""),
+        device_fit: entry.device_fit || {},
+        recommended_runtime: Array.isArray(entry.recommended_runtime)
+          ? entry.recommended_runtime.map(String)
+          : [],
+        vault_status: String(entry.vault_status || "")
+      }))
     };
   }
 
@@ -98,7 +145,7 @@
     }
   }
 
-  function saveSnapshot(rootFolder, tree, complete = true) {
+  function saveSnapshot(rootFolder, tree, registry = null, complete = true) {
     const target = storage();
     if (!target || !rootFolder || !tree) return false;
     const snapshot = {
@@ -106,7 +153,8 @@
       complete: complete === true,
       savedAt: Date.now(),
       rootFolder: copyFile(rootFolder),
-      tree: copyTree(tree)
+      tree: copyTree(tree),
+      registry: sanitizeRegistry(registry)
     };
     try {
       target.setItem(CACHE_KEY, JSON.stringify(snapshot));
@@ -117,21 +165,202 @@
     }
   }
 
-  function flattenModels(rootNode) {
-    const models = [];
+  function registryCandidates(entry) {
+    const values = [entry && entry.name, entry && entry.id];
+    if (entry && entry.repo) {
+      values.push(entry.repo);
+      values.push(String(entry.repo).split("/").pop());
+    }
+    return values
+      .map(normalizeName)
+      .filter(value => value.length >= 5);
+  }
+
+  function matchRegistry(relativePath, registry) {
+    if (!registry || !Array.isArray(registry.models)) return null;
+    const normalizedPath = normalizeName(relativePath);
+    let best = null;
+    let bestScore = 0;
+
+    for (const entry of registry.models) {
+      for (const candidate of registryCandidates(entry)) {
+        if (normalizedPath.includes(candidate) && candidate.length > bestScore) {
+          best = entry;
+          bestScore = candidate.length;
+        }
+      }
+    }
+    return best;
+  }
+
+  function categoryFromPath(relativePath) {
+    const first = String(relativePath || "").split("/")[0] || "";
+    if (first.startsWith("image_")) {
+      if (first === "image_edit") return "image-edit";
+      if (first === "image_anime") return "image-anime";
+      if (first === "image_nsfw") return "image-nsfw";
+      return "image";
+    }
+    if (first.startsWith("video_")) return "video";
+    return first || "unknown";
+  }
+
+  function packageRoot(relativePath, registryEntry) {
+    const parts = String(relativePath || "").split("/").filter(Boolean);
+    if (parts.length <= 1) return parts[0] || "";
+
+    const parent = parts.slice(0, -1);
+    if (CATEGORY_ROOTS.has(parts[0]) && parts.length >= 3) {
+      return parts.slice(0, 2).join("/");
+    }
+
+    if (registryEntry) {
+      const candidates = registryCandidates(registryEntry);
+      for (let i = 0; i < parent.length; i += 1) {
+        const segment = normalizeName(parent[i]);
+        if (candidates.some(candidate => segment.includes(candidate) || candidate.includes(segment))) {
+          return parent.slice(0, i + 1).join("/");
+        }
+      }
+    }
+
+    return parent.join("/");
+  }
+
+  function chooseBackend(entry, files) {
+    const extensions = new Set(files.map(file => extensionOf(file.name)));
+    const runtimes = new Set(
+      (entry && entry.recommended_runtime ? entry.recommended_runtime : [])
+        .map(value => String(value).toLowerCase())
+    );
+
+    if (extensions.has(".gguf") || runtimes.has("llama.cpp")) return "llama.cpp";
+    if (runtimes.has("comfyui")) return "ComfyUI";
+    if (runtimes.has("diffusers")) return "Diffusers";
+    if (runtimes.has("transformers")) return "Transformers";
+    if (runtimes.has("pytorch")) return "PyTorch";
+    if (extensions.has(".onnx")) return "ONNX Runtime";
+    if (extensions.has(".tflite")) return "TFLite";
+
+    const category = String(entry && entry.category || "");
+    if (["image", "image-edit", "image-anime", "image-nsfw", "video"].includes(category)) {
+      return "ComfyUI";
+    }
+    if (["ocr", "rag", "multimodal"].includes(category)) return "Transformers";
+    if (category === "timeseries") return "PyTorch";
+    return "Manual";
+  }
+
+  function workspaceForCategory(category) {
+    return {
+      llm: "chat",
+      reasoning: "chat",
+      code: "chat",
+      novel: "chat",
+      multimodal: "vision",
+      ocr: "vision",
+      image: "image-generation",
+      "image-anime": "image-generation",
+      "image-nsfw": "image-generation",
+      "image-edit": "image-edit",
+      video: "video-generation",
+      rag: "embedding",
+      timeseries: "timeseries"
+    }[category] || "generic";
+  }
+
+  function flattenPackages(rootNode, registry = null) {
+    const rawFiles = [];
+
     function walk(node) {
       if (!node) return;
-      if (node.file && isModelFile(node.file)) {
-        models.push({
+      if (
+        node.file &&
+        isModelFile(node.file) &&
+        !String(node.relativePath || "").startsWith(".hf-cache/")
+      ) {
+        rawFiles.push({
           ...copyFile(node.file),
-          relativePath: String(node.relativePath || ""),
-          runnableFormat: runnableFormat(node.file)
+          relativePath: String(node.relativePath || "")
         });
       }
       for (const child of node.children || []) walk(child);
     }
+
     walk(rootNode);
-    return models;
+
+    const groups = new Map();
+
+    for (const file of rawFiles) {
+      const entry = matchRegistry(file.relativePath, registry);
+      const root = packageRoot(file.relativePath, entry);
+      const key = root || file.relativePath;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          packagePath: root,
+          files: [],
+          registry: entry
+        });
+      }
+
+      const group = groups.get(key);
+      group.files.push(file);
+      if (!group.registry && entry) group.registry = entry;
+    }
+
+    return Array.from(groups.values()).map(group => {
+      const entry = group.registry || null;
+      const files = group.files.sort((a, b) =>
+        String(a.relativePath).localeCompare(String(b.relativePath))
+      );
+      const gguf = files.find(file => extensionOf(file.name) === ".gguf");
+      const representative =
+        gguf ||
+        [...files].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
+
+      const category =
+        String(entry && entry.category || "") ||
+        categoryFromPath(representative.relativePath);
+
+      const backend = chooseBackend(entry, files);
+      const totalSize = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+
+      return {
+        id: entry && entry.id ? entry.id : group.packagePath || representative.id,
+        name:
+          (entry && entry.name) ||
+          (group.packagePath ? group.packagePath.split("/").pop() : representative.name),
+        repo: entry && entry.repo ? entry.repo : "",
+        category,
+        modality: entry && entry.modality ? entry.modality : [],
+        capabilities: entry && entry.capabilities ? entry.capabilities : [],
+        artifactType: entry && entry.artifact_type ? entry.artifact_type : "",
+        qualityTier: entry && entry.quality_tier ? entry.quality_tier : "",
+        preferredArtifact: entry && entry.preferred_artifact ? entry.preferred_artifact : "",
+        deviceFit: entry && entry.device_fit ? entry.device_fit : {},
+        recommendedRuntime:
+          entry && entry.recommended_runtime ? entry.recommended_runtime : [],
+        vaultStatus: entry && entry.vault_status ? entry.vault_status : "",
+        backend,
+        workspace: workspaceForCategory(category),
+        packagePath: group.packagePath,
+        files,
+        fileCount: files.length,
+        totalSize,
+        representativeFile: representative,
+        directLaunch:
+          backend === "llama.cpp" && extensionOf(representative.name) === ".gguf",
+        relativePath: representative.relativePath,
+        runnableFormat:
+          backend === "llama.cpp" && extensionOf(representative.name) === ".gguf"
+            ? "gguf"
+            : null
+      };
+    }).sort((a, b) => {
+      const categoryCompare = String(a.category).localeCompare(String(b.category));
+      return categoryCompare || String(a.name).localeCompare(String(b.name));
+    });
   }
 
   function countFolders(rootNode) {
@@ -151,10 +380,12 @@
     MODEL_EXTENSIONS,
     countFolders,
     extensionOf,
-    flattenModels,
+    flattenModels: flattenPackages,
+    flattenPackages,
     isModelFile,
     loadSnapshot,
-    runnableFormat,
-    saveSnapshot
+    matchRegistry,
+    saveSnapshot,
+    workspaceForCategory
   };
 })();

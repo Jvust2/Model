@@ -20,7 +20,7 @@ jobs:
           python-version: "3.11"
 
       - name: Check Python syntax
-        run: python -m py_compile runtime/local_bridge.py
+        run: python -m py_compile runtime/local_bridge.py runtime/backends.py
 
       - name: Run bridge unit tests
         run: python -m unittest discover -s tests -v
@@ -33,6 +33,7 @@ jobs:
           node --check assets/app.js
           node --check sw.js
           node --check workers/drive-oauth-bridge.mjs
+          node tests/test_model_index.js
 
       - name: Verify Google API website contract
         run: |
@@ -49,6 +50,10 @@ jobs:
           grep -q 'findVaultBtn' index.html
           grep -q '/v1/chat/completions' assets/app.js
           grep -q 'drive_root_label' runtime/local_bridge.py
+          grep -q '/v1/backends' runtime/local_bridge.py
+          grep -q '/v1/models/plan' runtime/local_bridge.py
+          grep -q 'loadModelRegistry' assets/drive-client.js
+          grep -q 'flattenPackages' assets/model-index.js
 
   windows-launcher:
     runs-on: windows-latest

@@ -5,6 +5,7 @@
   let models = [];
   let runtimeBase = "";
   let runtimeState = null;
+  let backendState = null;
   let runtimePollTimer = null;
   let chatBusy = false;
   let chatHistory = [];
@@ -118,6 +119,12 @@
       const response = await fetch(runtimeUrl("/v1/runtime"), { cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       runtimeState = await response.json();
+      try {
+        const backendResponse = await fetch(runtimeUrl("/v1/backends"), { cache: "no-store" });
+        backendState = backendResponse.ok ? await backendResponse.json() : null;
+      } catch (_) {
+        backendState = null;
+      }
       $("runtimeState").textContent = runtimeLabel(runtimeState);
       $("runtimeLog").textContent = runtimeLogText(runtimeState);
       $("stopBtn").disabled = !runtimeState.running;
@@ -128,6 +135,7 @@
       return true;
     } catch (_) {
       runtimeState = null;
+      backendState = null;
       $("runtimeState").textContent = "未连接本地 Runtime";
       $("runtimeLog").textContent = "无法读取 Runtime 状态。先运行 runtime\\Model.cmd。";
       $("stopBtn").disabled = true;
@@ -346,12 +354,72 @@
     }
   }
 
+  function backendInfo(model) {
+    const map = backendState && backendState.backends ? backendState.backends : {};
+    return map[model.backend] || null;
+  }
+
+  function planText(plan) {
+    const status = plan.backend_status || {};
+    const requirements = Array.isArray(plan.requirements)
+      ? plan.requirements.join(" · ")
+      : "";
+    return [
+      "后端：" + (plan.backend || "未知"),
+      "工作区：" + (plan.workspace || "generic"),
+      "本机检测：" + (status.detected ? "已检测到" : "未检测到"),
+      status.detail ? "状态：" + status.detail : "",
+      plan.local_error ? "本机路径：" + plan.local_error : "",
+      requirements ? "需要：" + requirements : "",
+      plan.note || ""
+    ].filter(Boolean).join("\n");
+  }
+
+  async function planModel(model, button) {
+    showError("");
+    saveRuntimeBase();
+    button.disabled = true;
+    setStatus("正在分析 " + model.name + " 的运行方案…");
+
+    try {
+      const response = await fetch(runtimeUrl("/v1/models/plan"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backend: model.backend,
+          category: model.category,
+          package_path: model.packagePath || model.relativePath,
+          relative_path: model.relativePath
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "运行方案分析失败：" + response.status);
+
+      const plan = data.plan || {};
+      $("runtimeLog").textContent = planText(plan);
+      setStatus(
+        model.name +
+          " · " +
+          model.backend +
+          (plan.backend_status && plan.backend_status.detected
+            ? " 后端已检测"
+            : " 需要准备后端")
+      );
+    } catch (error) {
+      showError(error);
+      setStatus("运行方案分析失败");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function renderModels() {
     const list = $("modelList");
     const count = $("modelCount");
 
     list.textContent = "";
-    count.textContent = models.length + " 个模型文件";
+    count.textContent = models.length + " 个模型包";
 
     if (!models.length) {
       const empty = document.createElement("div");
@@ -382,7 +450,7 @@
 
       const format = document.createElement("span");
       format.className = "format-badge";
-      format.textContent = extension(model.name);
+      format.textContent = model.backend || extension(model.representativeFile && model.representativeFile.name);
 
       const title = document.createElement("div");
       title.className = "model-title";
@@ -392,59 +460,88 @@
 
       const size = document.createElement("div");
       size.className = "model-size";
-      size.textContent = formatBytes(model.size);
+      size.textContent =
+        formatBytes(model.totalSize) +
+        " · " +
+        model.fileCount +
+        " 文件";
 
       head.append(titleWrap, size);
 
+      const meta = document.createElement("div");
+      meta.className = "model-meta";
+      const info = backendInfo(model);
+      const pieces = [
+        model.category || "unknown",
+        model.workspace || "generic",
+        model.qualityTier || "",
+        info ? (info.detected ? "后端已检测" : "后端未安装") : ""
+      ].filter(Boolean);
+      meta.textContent = pieces.join(" · ");
+
       const path = document.createElement("div");
       path.className = "model-path";
-      path.textContent = model.relativePath;
+      path.textContent = model.packagePath || model.relativePath;
 
       const actions = document.createElement("div");
       actions.className = "model-actions";
 
-      const probe = document.createElement("button");
-      probe.type = "button";
-      probe.dataset.icon = "chart";
-      probe.textContent = "Drive Range";
-      probe.addEventListener("click", async () => {
-        showError("");
-        probe.disabled = true;
-        try {
-          await ensureAccessToken();
-          const result = await window.DriveModelClient.probeRange(
-            model,
-            accessToken
-          );
-          setStatus("Drive Range 成功 · " + result.bytes + " bytes");
-        } catch (error) {
-          showError(error);
-        } finally {
-          probe.disabled = false;
-        }
-      });
-      actions.appendChild(probe);
+      const representative = model.representativeFile;
+      if (representative && representative.id && Number(representative.size || 0)) {
+        const probe = document.createElement("button");
+        probe.type = "button";
+        probe.dataset.icon = "chart";
+        probe.textContent = "Drive Range";
+        probe.addEventListener("click", async () => {
+          showError("");
+          probe.disabled = true;
+          try {
+            await ensureAccessToken();
+            const result = await window.DriveModelClient.probeRange(
+              representative,
+              accessToken
+            );
+            setStatus("Drive Range 成功 · " + result.bytes + " bytes");
+          } catch (error) {
+            showError(error);
+          } finally {
+            probe.disabled = false;
+          }
+        });
+        actions.appendChild(probe);
+      }
 
-      if (model.runnableFormat === "gguf") {
+      const plan = document.createElement("button");
+      plan.type = "button";
+      plan.textContent = "运行方案";
+      plan.addEventListener("click", () => planModel(model, plan));
+      actions.appendChild(plan);
+
+      if (model.directLaunch) {
         const inspect = document.createElement("button");
         inspect.type = "button";
         inspect.textContent = "本机检查";
         inspect.addEventListener("click", () => inspectModel(model, inspect));
         actions.appendChild(inspect);
+
+        const launch = document.createElement("button");
+        launch.type = "button";
+        launch.dataset.icon = "play";
+        launch.textContent = "本机启动";
+        launch.className = "primary";
+        launch.addEventListener("click", () => startModel(model));
+        actions.appendChild(launch);
+      } else {
+        const prepare = document.createElement("button");
+        prepare.type = "button";
+        prepare.dataset.icon = "play";
+        prepare.textContent = "准备 " + (model.backend || "后端");
+        prepare.className = "primary";
+        prepare.addEventListener("click", () => planModel(model, prepare));
+        actions.appendChild(prepare);
       }
 
-      const launch = document.createElement("button");
-      launch.type = "button";
-      launch.dataset.icon = "play";
-      launch.textContent =
-        model.runnableFormat === "gguf" ? "本机启动" : "暂不支持运行";
-      launch.className =
-        model.runnableFormat === "gguf" ? "primary" : "";
-      launch.disabled = model.runnableFormat !== "gguf";
-      launch.addEventListener("click", () => startModel(model));
-      actions.appendChild(launch);
-
-      card.append(head, path, actions);
+      card.append(head, meta, path, actions);
       list.appendChild(card);
     }
   }
@@ -484,13 +581,22 @@
         }
       );
 
+      const registry = await window.DriveModelClient.loadModelRegistry(
+        accessToken,
+        rootId
+      );
+
       window.DriveModelIndex.saveSnapshot(
         result.rootFolder,
         result.tree,
+        registry,
         true
       );
 
-      models = window.DriveModelIndex.flattenModels(result.tree);
+      models = window.DriveModelIndex.flattenPackages(
+        result.tree,
+        registry
+      );
       renderModels();
       setDriveState(
         "已扫描 · " +
@@ -504,7 +610,9 @@
           result.scannedFolders +
           " 文件夹 · " +
           result.modelFiles +
-          " 模型"
+          " 权重文件 · " +
+          models.length +
+          " 模型包"
       );
     } catch (error) {
       showError(error);
@@ -525,11 +633,13 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          drive_file_id: model.id,
+          drive_file_id: model.representativeFile && model.representativeFile.id,
           name: model.name,
           relative_path: model.relativePath,
-          size: Number(model.size || 0),
-          format: model.runnableFormat
+          size: Number(model.representativeFile && model.representativeFile.size || 0),
+          format: model.runnableFormat,
+          backend: model.backend,
+          category: model.category
         })
       });
 
@@ -600,13 +710,16 @@
 
     const snapshot = window.DriveModelIndex.loadSnapshot();
     if (snapshot) {
-      models = window.DriveModelIndex.flattenModels(snapshot.tree);
+      models = window.DriveModelIndex.flattenPackages(
+        snapshot.tree,
+        snapshot.registry || null
+      );
       renderModels();
       setDriveState(
         "已恢复上次索引 · " +
           (snapshot.rootFolder.name || snapshot.rootFolder.id)
       );
-      setStatus("已恢复上次模型索引 · " + models.length + " 个文件");
+      setStatus("已恢复上次模型索引 · " + models.length + " 个模型包");
     } else {
       renderModels();
     }

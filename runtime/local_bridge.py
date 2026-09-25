@@ -16,6 +16,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+try:
+    from .backends import backend_status, model_plan
+except ImportError:
+    from backends import backend_status, model_plan
+
 HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.environ.get("MODEL_BRIDGE_PORT", "8765"))
 MODEL_SERVER_PORT = int(os.environ.get("MODEL_SERVER_PORT", "8080"))
@@ -409,7 +414,7 @@ STATE = RuntimeState()
 atexit.register(STATE.stop)
 
 
-def safe_model_path(relative_path: str) -> Path:
+def safe_relative_path(relative_path: str) -> Path:
     if not MODEL_DRIVE_ROOT:
         raise ValueError("MODEL_DRIVE_ROOT is not configured.")
 
@@ -430,19 +435,28 @@ def safe_model_path(relative_path: str) -> Path:
     if os.path.normcase(common) != os.path.normcase(str(root)):
         raise ValueError("Model path escapes MODEL_DRIVE_ROOT.")
 
-    if candidate.suffix.lower() != ".gguf":
-        raise ValueError("The local llama.cpp path only launches GGUF models.")
-
-    if not candidate.exists() or not candidate.is_file():
+    if not candidate.exists():
         raise FileNotFoundError(
-            "Model file is not visible at the mounted Drive path: " + str(candidate)
+            "Model package is not visible at the mounted Drive path."
         )
 
     return candidate
 
 
+def safe_model_path(relative_path: str) -> Path:
+    candidate = safe_relative_path(relative_path)
+
+    if candidate.suffix.lower() != ".gguf":
+        raise ValueError("The local llama.cpp path only launches GGUF models.")
+
+    if not candidate.is_file():
+        raise FileNotFoundError("GGUF model path is not a file.")
+
+    return candidate
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.4"
+    server_version = "DriveModelBridge/0.6"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -490,7 +504,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 4})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 6})
+            return
+
+        if path == "/v1/backends":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            self._json(200, backend_status(LLAMA_SERVER_PATH))
             return
 
         if path == "/v1/runtime":
@@ -538,6 +559,46 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(status, result)
                 return
 
+            if path == "/v1/models/plan":
+                backend = str(payload.get("backend") or "")
+                category = str(payload.get("category") or "unknown")
+                package_path = str(
+                    payload.get("package_path")
+                    or payload.get("relative_path")
+                    or ""
+                )
+
+                local_kind = None
+                local_exists = False
+                local_error = None
+                if package_path:
+                    try:
+                        package = safe_relative_path(package_path)
+                        local_exists = True
+                        local_kind = "directory" if package.is_dir() else "file"
+                    except (ValueError, FileNotFoundError) as error:
+                        local_error = str(error)
+
+                plan = model_plan(backend, category)
+                status = backend_status(LLAMA_SERVER_PATH)["backends"].get(
+                    backend,
+                    {
+                        "detected": False,
+                        "automatic_launch": False,
+                        "detail": "unknown backend",
+                    },
+                )
+                plan.update(
+                    {
+                        "local_exists": local_exists,
+                        "local_kind": local_kind,
+                        "local_error": local_error,
+                        "backend_status": status,
+                    }
+                )
+                self._json(200, {"ok": True, "plan": plan})
+                return
+
             if path == "/v1/models/inspect":
                 relative_path = str(payload.get("relative_path") or "")
                 model_path = safe_model_path(relative_path)
@@ -580,7 +641,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.4")
+    print("Drive Model Local Runtime v0.6")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive root:", MODEL_DRIVE_ROOT or "(not configured)")
     print("llama-server:", LLAMA_SERVER_PATH)

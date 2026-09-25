@@ -42,6 +42,16 @@ class SafeModelPathTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             bridge.safe_model_path("missing.gguf")
 
+    def test_safe_relative_path_accepts_model_package_directory(self):
+        package = self.root / "video_ultra" / "Wan2.2-Animate-14B"
+        package.mkdir(parents=True)
+        resolved = bridge.safe_relative_path("video_ultra/Wan2.2-Animate-14B")
+        self.assertEqual(resolved, package.resolve())
+
+    def test_safe_relative_path_rejects_traversal(self):
+        with self.assertRaises(ValueError):
+            bridge.safe_relative_path("../outside")
+
 
 class GgufInspectionTests(unittest.TestCase):
     def test_reads_fixed_header_without_payload(self):
