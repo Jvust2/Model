@@ -7,7 +7,7 @@
   <meta name="description" content="通过 Google Drive API 浏览模型，本机 CPU/GPU 负责推理，并直接在网页聊天。" />
   <meta name="theme-color" content="#0b0f1d" />
   <link rel="icon" href="./assets/star.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/model.css?v=8" />
+  <link rel="stylesheet" href="./assets/model.css?v=9" />
 </head>
 <body>
   <header class="site-header shell">
@@ -49,18 +49,25 @@
         <div id="driveState" class="note">尚未连接 Google Drive。</div>
       </div>
 
-      <div class="panel">
-        <h2>本机 Runtime</h2>
-        <div class="field">
-          <label for="runtimeUrl">Local Runtime Bridge</label>
-          <input id="runtimeUrl" value="http://127.0.0.1:8765" autocomplete="off" spellcheck="false" />
-        </div>
+      <div class="panel runtime-panel">
+        <h2>本机 AI 引擎</h2>
         <div class="runtime-row">
-          <button id="runtimeCheckBtn" type="button">检查连接</button>
+          <span id="runtimeState">正在自动连接…</span>
+          <button id="installRuntimeBtn" class="primary" type="button">首次安装</button>
+          <button id="runtimeCheckBtn" type="button">重新连接</button>
           <button id="stopBtn" type="button" disabled>停止模型</button>
-          <span id="runtimeState">未连接本地 Runtime</span>
         </div>
-        <pre id="runtimeLog" class="runtime-log">等待 Runtime 日志…</pre>
+        <div id="runtimeHint" class="note">
+          网页会自动连接本机引擎；安装一次后，以后只需要打开这个网页。
+        </div>
+        <details class="runtime-advanced">
+          <summary>高级诊断</summary>
+          <div class="field">
+            <label for="runtimeUrl">Local Runtime Bridge</label>
+            <input id="runtimeUrl" value="http://127.0.0.1:8765" autocomplete="off" spellcheck="false" />
+          </div>
+          <pre id="runtimeLog" class="runtime-log">等待 Runtime 状态…</pre>
+        </details>
       </div>
     </section>
 
@@ -69,7 +76,7 @@
         <div>
           <div class="kicker">LOCAL CHAT</div>
           <h2 id="chatTitle">本机工作区 · Chat</h2>
-          <p id="chatModelLabel">GGUF 文本模型可直接聊天；图像/视频/视觉/时序工作区按模型后端逐步接入。</p>
+          <p id="chatModelLabel">选择可用模型后直接使用；首次安装本机 AI 引擎后，之后只需打开网页。</p>
         </div>
         <button id="clearChatBtn" type="button">清空对话</button>
       </div>
@@ -100,9 +107,9 @@
     </div>
   </main>
 
-  <script src="./assets/config.js?v=8"></script>
-  <script src="./assets/model-index.js?v=8"></script>
-  <script src="./assets/drive-client.js?v=8"></script>
-  <script src="./assets/app.js?v=8"></script>
+  <script src="./assets/config.js?v=9"></script>
+  <script src="./assets/model-index.js?v=9"></script>
+  <script src="./assets/drive-client.js?v=9"></script>
+  <script src="./assets/app.js?v=9"></script>
 </body>
 </html>
