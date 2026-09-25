@@ -17,6 +17,8 @@ Browser / GitHub Pages
   │
   └─ localhost Runtime Bridge (127.0.0.1)
           │
+          ├─ Windows tray/autostart host
+          ├─ browser auto-reconnect
           ├─ memory-only Drive session
           ├─ direct Drive API downloader
           ├─ resumable local cache
@@ -125,3 +127,36 @@ Only GGUF has a complete direct Drive cache → launch adapter today.
 5. Cache paths are generated from hashes, never from untrusted relative paths.
 6. OAuth secrets/tokens are never committed to GitHub.
 7. Cached model files can be deleted without losing canonical data because Drive is authoritative.
+
+
+## Web-first Windows lifecycle
+
+Normal users should not manually start the bridge.
+
+One-time installation:
+
+```text
+runtime/Install.cmd
+  ↓
+copy runtime → %LOCALAPPDATA%\JvustModel\app
+  ↓
+save llama-server path
+  ↓
+register HKCU current-user auto-start
+  ↓
+start hidden tray host
+```
+
+Later sessions:
+
+```text
+Windows login
+  ↓
+background.ps1
+  ↓
+localhost Runtime
+  ↑
+Model website auto-reconnects
+```
+
+The tray host exposes Open Model, Runtime status, logs, restart, and exit actions. It is intentionally a current-user background app rather than an administrator-level Windows service.
