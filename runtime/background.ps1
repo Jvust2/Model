@@ -206,7 +206,7 @@ $timer.add_Tick({
 $notify.ShowBalloonTip(
     2500,
     "Model Runtime",
-    "后台引擎已启动。以后直接Open Model即可。",
+    "Background engine started. Open Model anytime.",
     [System.Windows.Forms.ToolTipIcon]::Info
 )
 
