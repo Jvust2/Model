@@ -20,7 +20,7 @@ jobs:
           python-version: "3.11"
 
       - name: Check Python syntax
-        run: python -m py_compile runtime/local_bridge.py runtime/backends.py
+        run: python -m py_compile runtime/local_bridge.py runtime/backends.py runtime/drive_cache.py
 
       - name: Run bridge unit tests
         run: python -m unittest discover -s tests -v
@@ -49,7 +49,10 @@ jobs:
           grep -q 'AI-Model-Vault' index.html
           grep -q 'findVaultBtn' index.html
           grep -q '/v1/chat/completions' assets/app.js
-          grep -q 'drive_root_label' runtime/local_bridge.py
+          grep -q '/v1/drive/session' runtime/local_bridge.py
+          grep -q 'DriveCache' runtime/local_bridge.py
+          grep -q 'MODEL_CACHE_ROOT' runtime/launch_model.ps1
+          if grep -q 'MODEL_DRIVE_ROOT' runtime/launch_model.ps1; then exit 1; fi
           grep -q '/v1/backends' runtime/local_bridge.py
           grep -q '/v1/models/plan' runtime/local_bridge.py
           grep -q 'loadModelRegistry' assets/drive-client.js
@@ -74,6 +77,10 @@ jobs:
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+
+      - name: Exercise launcher process arguments
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\launch_model.ps1 -SelfTest
 
       - name: Verify CMD launcher
         shell: cmd
