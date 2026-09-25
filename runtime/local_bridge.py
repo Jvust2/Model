@@ -549,7 +549,7 @@ atexit.register(STATE.stop)
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.7"
+    server_version = "DriveModelBridge/0.8"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -597,7 +597,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 7})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 8})
             return
 
         if path == "/v1/backends":
@@ -740,7 +740,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.7")
+    print("Drive Model Local Runtime v0.8")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive source: Google Drive API (no desktop mount required)")
     print("Cache root:", DRIVE_CACHE.root)
