@@ -26,17 +26,31 @@ Google Drive is the canonical model vault. The website discovers model packages 
           ↓
     Chat in the same website
 
-## Windows Runtime
+## One-time Windows install
 
-Run:
+For normal use, install the background Runtime once:
 
-    runtime\Model.cmd
+    runtime\Install.cmd
 
-First run asks only for:
+The installer:
 
-    llama-server.exe
+- asks for `llama-server.exe` only when it cannot find one automatically;
+- copies the Runtime to `%LOCALAPPDATA%\JvustModel\app`;
+- enables current-user Windows auto-start;
+- starts a tray Runtime in the background;
+- opens the Model website.
 
-It does **not** ask for a Google Drive folder.
+After that, normal use is simply:
+
+    open https://jvust2.github.io/Model/
+
+The website automatically reconnects to the local Runtime. You do not need to run `Model.cmd` every time.
+
+To remove the background Runtime:
+
+    runtime\Uninstall.cmd
+
+Use `runtime\Model.cmd` only as a manual/debug launcher.
 
 Default model cache:
 
