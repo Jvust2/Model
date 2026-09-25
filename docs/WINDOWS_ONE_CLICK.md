@@ -1,55 +1,59 @@
-# Windows one-click website launcher
+# Windows one-click launcher
 
 ## Goal
 
-Normal use should feel like the Drive player:
+Normal use:
 
-1. double-click runtime/Model.cmd;
-2. the local Runtime starts;
-3. the Model website opens;
-4. choose a Drive GGUF;
-5. start the model;
-6. chat on the same page.
+1. double-click `runtime/Model.cmd`;
+2. choose `llama-server.exe` on first run;
+3. the localhost Runtime starts;
+4. the Model website opens;
+5. connect Google Drive in the website;
+6. choose a GGUF;
+7. Runtime downloads it directly from Drive API into local cache;
+8. llama.cpp starts;
+9. chat on the same page.
+
+Google Drive for desktop is not required.
 
 ## First run
 
-Double-click runtime/Model.cmd.
+Double-click:
 
-The launcher asks for only two local paths:
+    runtime\Model.cmd
 
-- the Google Drive model root exposed by Google Drive for desktop;
-- llama-server.exe.
+The launcher asks for only:
 
-The selected paths are saved outside the repository at:
+- `llama-server.exe`
+
+Saved config:
 
     %LOCALAPPDATA%\JvustModel\runtime.json
 
-No OAuth token, model weight, or Drive credential is stored in this config.
+Default cache:
 
-## Later runs
+    %LOCALAPPDATA%\JvustModel\cache
 
-Double-click runtime/Model.cmd again.
+Logs:
 
-The launcher validates the saved paths, starts runtime/local_bridge.py, waits for the bridge health check, opens the public Model site when reachable, and otherwise falls back to a local site on http://127.0.0.1:8000/.
+    %LOCALAPPDATA%\JvustModel\logs
 
-## Change paths
+No OAuth token is stored in runtime.json.
 
-Run:
+## Reset llama-server path
 
     runtime\Model.cmd -ResetConfig
 
 ## Force local website
 
-Run:
-
     runtime\Model.cmd -LocalSite
 
-## Do not open a browser automatically
-
-Run:
+## Do not open browser
 
     runtime\Model.cmd -NoBrowser
 
-## Current limitation
+## Model download behavior
 
-The website itself can be public, but llama.cpp still needs the local Runtime because a normal browser page cannot directly spawn native Windows inference or give llama.cpp a normal seekable Google Drive file path.
+The browser sends the current short-lived Drive access token to localhost Runtime memory. When a GGUF is launched, Runtime downloads or resumes it from Google Drive API.
+
+A complete local cache file is required before llama.cpp starts. This is a cache, not the canonical model store; Google Drive remains authoritative.
