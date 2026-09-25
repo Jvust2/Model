@@ -431,6 +431,11 @@ class VideoRuntime:
                     {"id": key, "label": value["label"]}
                     for key, value in ADAPTERS.items()
                 ],
+                "workflow_resources_ready": all(
+                    resource_path(adapter["workflow"]).exists()
+                    for adapter in ADAPTERS.values()
+                ),
+                "archive_support": py7zr is not None,
             }
 
     def start(self, payload: dict) -> dict:
