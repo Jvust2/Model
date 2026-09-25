@@ -4,82 +4,95 @@ Updated: 2026-09-25
 
 ## Mission
 
-Build a Drive-first AI model website: Google Drive API provides the cloud model library, while inference executes on the user's Windows computer.
+Build a Drive-first AI model website where Google Drive is the model vault, the web UI discovers and classifies model packages, and inference runs through the correct local backend on the user's Windows computer.
 
 ## Current state
 
-Status: **v0.5 Google API website path restored**
+Status: **v0.6 multi-backend model-package routing in progress**
 
-Implemented on branch `feat/drive-model-runtime-v1`:
+Verified on the live site:
+
+- GitHub Pages deployment works.
+- Google OAuth returns to the Model site.
+- Google Drive API authorization works.
+- `AI-Model-Vault` is auto-discovered.
+- A real Drive scan completed across 203 folders and found 80 model-weight files.
+
+Implemented:
 
 - Google Drive OAuth/session flow.
 - Google Drive API v3 metadata access.
-- Automatic discovery of root-level `AI-Model-Vault`.
-- Manual folder ID fallback.
-- Recursive Drive model discovery.
-- Session-scoped metadata index.
-- Range-only Drive Service Worker.
-- GGUF-first localhost llama-server bridge.
-- Cloud Drive relative path → local mounted Drive path mapping.
-- Root-name mismatch warning between cloud selection and Runtime.
-- CPU-first runtime with optional GPU offload.
-- GGUF fixed-header inspection.
-- idle/loading/ready/failed runtime phases.
-- llama.cpp health polling.
-- Same-page local chat via `/v1/chat/completions`.
-- GitHub Pages workflow.
+- Recursive Drive discovery and Range diagnostics.
+- Drive-root discovery with manual folder-ID fallback.
+- `model_metadata.json` loading from the Drive vault.
+- Model-weight files grouped into model packages instead of being treated as independent models.
+- Registry-first category/modality/runtime classification.
+- Backend routing for llama.cpp / ComfyUI / Diffusers / Transformers / PyTorch / ONNX Runtime / TFLite.
+- Runtime backend detection endpoint: `GET /v1/backends`.
+- Runtime execution-plan endpoint: `POST /v1/models/plan`.
+- Path-private backend diagnostics.
+- GGUF direct launch through llama.cpp remains functional.
+- Same-page local chat for llama.cpp models.
 - Windows one-click Runtime launcher.
-- Linux + Windows CI.
+- OAuth Bridge source is versioned in the repository.
 
 ## Architecture invariants
 
-1. Google Drive API is the website's model discovery source.
-2. Google Drive remains the canonical model storage.
-3. GitHub stores code/governance only.
-4. Native inference remains local.
-5. Website Drive root and `MODEL_DRIVE_ROOT` must refer to the same Drive folder.
-6. CPU operation works without GPU.
-7. GPU offload is explicit.
-8. No silent permanent full-model download.
-9. Runtime binds to localhost.
-10. Model paths are relative and confined below the configured local root.
-11. GGUF/llama.cpp is the first executable path.
-12. Model readiness requires llama.cpp health success.
-13. OAuth secrets/tokens are never committed to GitHub.
+1. Google Drive remains canonical model storage.
+2. `AI-Model-Vault/model_metadata.json` is the capability/runtime registry when available.
+3. A model package is a directory/family of related files, not an individual weight shard.
+4. GitHub stores code/governance only, never model weights or OAuth secrets.
+5. Native inference remains local.
+6. The web Drive root and `MODEL_DRIVE_ROOT` must identify the same model root.
+7. Runtime binds to localhost.
+8. Relative model paths are confined below `MODEL_DRIVE_ROOT`.
+9. The website never receives local filesystem write access.
+10. Backend detection must not expose full local filesystem paths.
+11. A format extension alone is not enough to claim a model is automatically runnable.
+12. GGUF + llama.cpp is the first fully automatic adapter.
+13. Other backends become automatic only after a model-family-specific workflow/adapter exists.
 
 ## Current user flow
 
-    Open website
+    Open Model website
        ↓
     Connect Google Drive
        ↓
     Auto-find AI-Model-Vault
        ↓
-    Scan Drive models
+    Scan Drive
        ↓
-    Start runtime/Model.cmd
+    Load model_metadata.json
        ↓
-    Select/start GGUF
+    Group weight shards into model packages
        ↓
-    Ready
+    Route package to backend/workspace
        ↓
-    Chat
+    Runtime checks local backend and package visibility
+       ↓
+    Direct launch when an adapter exists
 
-## Known gaps
+## Current backend state
 
-- Final OAuth redirect to the Model Pages origin still needs a real browser verification.
-- GitHub Pages repository setting still needs verification/enabling if disabled.
-- Real Windows + Drive mount + Drive API + GGUF chat round trip has not yet been recorded.
-- Chat is synchronous; token streaming is not yet implemented.
-- Direct Drive-file-ID native inference remains future work.
+| Backend | Detection | Automatic launch |
+| --- | --- | --- |
+| llama.cpp | yes | yes |
+| ComfyUI | yes | not yet |
+| Diffusers | yes | not yet |
+| Transformers | yes | not yet |
+| PyTorch | yes | not yet |
+| ONNX Runtime | yes | not yet |
+| TFLite | yes | not yet |
+
+"Detection" means the Runtime can identify whether the local environment is available. It does not mean arbitrary weight files can already be launched safely.
 
 ## Next technical steps
 
-1. Run CI for the restored Google API website path.
-2. Verify OAuth bridge redirect on the final Model site.
-3. Verify automatic `AI-Model-Vault` discovery.
-4. Use matching local `MODEL_DRIVE_ROOT`.
-5. Run a small GGUF end to end.
-6. Add token streaming.
-7. Add benchmark capture.
-8. Evaluate sparse-cache / virtual filesystem direct Drive-file-ID access.
+1. Finish CI validation for model-package grouping and backend planning.
+2. Add ComfyUI workflow adapters for Wan2.2 / Qwen-Image / FLUX families.
+3. Add Diffusers pipeline adapters where model families are supported cleanly.
+4. Add Transformers adapters for GOT-OCR and Qwen embedding/reranker families.
+5. Add PyTorch adapters for Chronos / TimesFM.
+6. Add workspace-specific web UIs: image, image-edit, video, vision/OCR, embedding and time-series.
+7. Add token/output streaming and benchmark capture.
+8. Evaluate sparse-cache / virtual filesystem direct Drive-file-ID access after mounted-drive adapters are stable.
