@@ -504,6 +504,9 @@ class Handler(BaseHTTPRequestHandler):
                     "drive_root_exists": bool(
                         MODEL_DRIVE_ROOT and Path(MODEL_DRIVE_ROOT).expanduser().exists()
                     ),
+                    "drive_root_label": (
+                        Path(MODEL_DRIVE_ROOT).expanduser().name if MODEL_DRIVE_ROOT else None
+                    ),
                     "llama_server_found": resolve_llama_server() is not None,
                     "bridge_port": BRIDGE_PORT,
                     "model_server_port": MODEL_SERVER_PORT,
