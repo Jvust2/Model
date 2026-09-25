@@ -101,7 +101,7 @@ Each adapter should be model-family aware rather than extension-only.
 
 ## Managed ComfyUI video path
 
-The video web workspace uses a pinned official ComfyUI Windows Portable release and official Comfy-Org workflow templates.
+The video web workspace uses a pinned official ComfyUI Windows Portable NVIDIA release and official Comfy-Org workflow templates. The v0.9 automatic video path currently requires an NVIDIA Windows environment.
 
 The Drive model package remains the user's model catalog/source identity. For execution, Runtime downloads the ComfyUI-compatible model artifacts declared by the official workflow into a local derived cache. This is intentionally separate from the Drive-native package because the file layout/format expected by ComfyUI can differ.
 
