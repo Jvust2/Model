@@ -97,7 +97,7 @@ if ($SelfTest) {
 }
 
 $createdNew = $false
-$mutex = New-Object System.Threading.Mutex($true, "JvustModelRuntimeTray", [ref]$createdNew)
+$mutex = [System.Threading.Mutex]::new($true, "JvustModelRuntimeTray", [ref]$createdNew)
 if (-not $createdNew) {
     exit 0
 }
