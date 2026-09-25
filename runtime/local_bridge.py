@@ -700,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
                 if Path(spec.name).suffix.lower() != ".gguf":
                     raise ValueError("Direct llama.cpp launch currently supports GGUF only.")
 
-                model_name = str(payload.get("name") or spec.name)
+                model_name = str(payload.get("display_name") or payload.get("name") or spec.name)
                 relative_path = str(payload.get("relative_path") or spec.name)
                 token = DRIVE_SESSION.get()
                 result = STATE.start_drive(
