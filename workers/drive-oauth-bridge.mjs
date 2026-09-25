@@ -17,6 +17,7 @@ const SCOPES = [
 ].join(" ");
 
 const STATE_TTL_SECONDS = 600;
+const STATE_COOKIE = "__Host-drive_oauth_state";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export default {
@@ -41,7 +42,7 @@ export default {
     }
 
     if (url.pathname === "/callback") {
-      return handleCallback(url, env);
+      return handleCallback(request, url, env);
     }
 
     if (url.pathname === "/token") {
@@ -65,12 +66,11 @@ async function startAuthorization(url, env) {
   }
 
   const state = randomString(32);
-
-  await env.OAUTH_KV.put(
-    "oauth_state:" + state,
-    JSON.stringify({ returnTo }),
-    { expirationTtl: STATE_TTL_SECONDS }
-  );
+  const statePayload = encodeStateCookie({
+    state,
+    returnTo,
+    expiresAt: Date.now() + STATE_TTL_SECONDS * 1000
+  });
 
   const authUrl = new URL(
     "https://accounts.google.com/o/oauth2/v2/auth"
@@ -85,10 +85,18 @@ async function startAuthorization(url, env) {
   authUrl.searchParams.set("include_granted_scopes", "true");
   authUrl.searchParams.set("state", state);
 
-  return Response.redirect(authUrl.toString(), 302);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: authUrl.toString(),
+      "Set-Cookie": buildStateCookie(statePayload),
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer"
+    }
+  });
 }
 
-async function handleCallback(url, env) {
+async function handleCallback(request, url, env) {
   const oauthError = url.searchParams.get("error");
   if (oauthError) {
     return new Response("Google OAuth failed: " + oauthError, {
@@ -105,26 +113,26 @@ async function handleCallback(url, env) {
     });
   }
 
-  const stateRecordRaw = await env.OAUTH_KV.get(
-    "oauth_state:" + state
-  );
+  const stateCookie = readCookie(request, STATE_COOKIE);
+  const stateRecord = decodeStateCookie(stateCookie);
 
-  if (!stateRecordRaw) {
+  if (
+    !stateRecord ||
+    stateRecord.state !== state ||
+    !Number.isFinite(stateRecord.expiresAt) ||
+    stateRecord.expiresAt < Date.now()
+  ) {
     return new Response("Invalid or expired OAuth state.", {
-      status: 400
+      status: 400,
+      headers: {
+        "Cache-Control": "no-store",
+        "Set-Cookie": clearStateCookie()
+      }
     });
   }
 
-  await env.OAUTH_KV.delete("oauth_state:" + state);
-
-  let returnTo = DEFAULT_RETURN_URL;
-  try {
-    const record = JSON.parse(stateRecordRaw);
-    const candidate = normalizeReturnTo(record.returnTo);
-    if (candidate) returnTo = candidate;
-  } catch (_) {
-    // Backward compatibility for an old "1" state record.
-  }
+  const returnTo =
+    normalizeReturnTo(stateRecord.returnTo) || DEFAULT_RETURN_URL;
 
   const body = new URLSearchParams();
   body.set("code", code);
@@ -189,6 +197,7 @@ async function handleCallback(url, env) {
     status: 302,
     headers: {
       Location: returnUrl,
+      "Set-Cookie": clearStateCookie(),
       "Cache-Control": "no-store",
       "Referrer-Policy": "no-referrer"
     }
@@ -364,6 +373,74 @@ function normalizeReturnTo(value) {
     return ALLOWED_RETURN_URLS.has(normalized)
       ? normalized
       : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildStateCookie(value) {
+  return [
+    STATE_COOKIE + "=" + value,
+    "Path=/",
+    "Max-Age=" + STATE_TTL_SECONDS,
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax"
+  ].join("; ");
+}
+
+function clearStateCookie() {
+  return [
+    STATE_COOKIE + "=",
+    "Path=/",
+    "Max-Age=0",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax"
+  ].join("; ");
+}
+
+function readCookie(request, name) {
+  const raw = request.headers.get("Cookie") || "";
+  for (const part of raw.split(";")) {
+    const item = part.trim();
+    const index = item.indexOf("=");
+    if (index <= 0) continue;
+    if (item.slice(0, index) === name) {
+      return item.slice(index + 1);
+    }
+  }
+  return null;
+}
+
+function encodeStateCookie(value) {
+  const jsonText = JSON.stringify(value);
+  const bytes = new TextEncoder().encode(jsonText);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function decodeStateCookie(value) {
+  if (!value) return null;
+  try {
+    let base64 = String(value)
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
+
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(
+      binary,
+      character => character.charCodeAt(0)
+    );
+    const decoded = new TextDecoder().decode(bytes);
+    return JSON.parse(decoded);
   } catch (_) {
     return null;
   }
