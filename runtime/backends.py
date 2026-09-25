@@ -64,12 +64,12 @@ def backend_status(llama_server_path: str | None = None) -> dict:
         "llama.cpp": {
             "detected": bool(llama_path),
             "automatic_launch": True,
-            "detail": llama_path or "llama-server not found",
+            "detail": "llama-server detected" if llama_path else "llama-server not found",
         },
         "ComfyUI": {
             "detected": bool(comfy_root),
             "automatic_launch": False,
-            "detail": str(comfy_root) if comfy_root else "set MODEL_COMFYUI_ROOT",
+            "detail": "ComfyUI root detected" if comfy_root else "set MODEL_COMFYUI_ROOT",
         },
     }
 
