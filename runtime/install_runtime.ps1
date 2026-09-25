@@ -17,39 +17,6 @@ $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $runName = "JvustModelRuntime"
 $siteUrl = "https://jvust2.github.io/Model/"
 
-function Find-Python {
-    $py = Get-Command "py.exe" -ErrorAction SilentlyContinue
-    if ($py) {
-        return [PSCustomObject]@{ File = $py.Source; PrefixArgs = @("-3") }
-    }
-
-    $python = Get-Command "python.exe" -ErrorAction SilentlyContinue
-    if ($python) {
-        return [PSCustomObject]@{ File = $python.Source; PrefixArgs = @() }
-    }
-
-    throw "Python 3.10+ was not found. Install Python first, then run Install.cmd again."
-}
-
-function Assert-PythonVersion($python) {
-    $args = @($python.PrefixArgs) + @(
-        "-c",
-        "import sys; print(str(sys.version_info.major)+'.'+str(sys.version_info.minor)+'.'+str(sys.version_info.micro))"
-    )
-    $args = @($args | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
-    $text = (& $python.File @args 2>&1 | Select-Object -First 1)
-    if (-not $text) { throw "Could not determine Python version." }
-
-    $parts = [string]$text -split "\."
-    if ($parts.Count -lt 2) { throw "Unexpected Python version: $text" }
-    $major = [int]$parts[0]
-    $minor = [int]$parts[1]
-    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 10)) {
-        throw "Python 3.10+ is required. Detected: $text"
-    }
-    return [string]$text
-}
-
 function Test-LlamaPath([string]$path) {
     return (
         -not [string]::IsNullOrWhiteSpace($path) -and
@@ -163,23 +130,15 @@ function Startup-Command {
 }
 
 $required = @(
-    "__init__.py",
-    "backends.py",
-    "drive_cache.py",
-    "local_bridge.py",
+    "ModelRuntime.exe",
     "background.ps1"
 )
 
 if ($SelfTest) {
-    foreach ($name in $required) {
-        $path = Join-Path $sourceRuntime $name
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "Installer self-test missing source file: $name"
-        }
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceRuntime "background.ps1") -PathType Leaf)) {
+        throw "Installer self-test missing background.ps1"
     }
-    $python = Find-Python
-    $version = Assert-PythonVersion $python
-    Write-Host "Installer self-test passed. Python $version"
+    Write-Host "Installer script self-test passed."
     exit 0
 }
 
@@ -187,10 +146,6 @@ Write-Host ""
 Write-Host "Model Runtime Installer" -ForegroundColor Cyan
 Write-Host "This is a one-time install. Google Drive Desktop is not required." -ForegroundColor Green
 Write-Host ""
-
-$python = Find-Python
-$pythonVersion = Assert-PythonVersion $python
-Write-Host "Python     : $pythonVersion"
 
 New-Item -ItemType Directory -Force -Path $baseDir, $appDir, $logsDir, $cacheDir | Out-Null
 
