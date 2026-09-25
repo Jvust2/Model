@@ -39,6 +39,35 @@ jobs:
           test -f .github/workflows/pages.yml
           test -f governance/PROJECT_STATE.md
           test -f governance/ARCHITECTURE.md
+          test -f runtime/Model.cmd
+          test -f runtime/launch_model.ps1
+          test -f docs/WINDOWS_ONE_CLICK.md
           grep -q 'id="chatForm"' index.html
           grep -q '/v1/chat/completions' assets/app.js
           grep -q '/v1/chat/completions' runtime/local_bridge.py
+
+  windows-launcher:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse PowerShell launcher
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "runtime\launch_model.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+
+      - name: Verify CMD launcher
+        shell: cmd
+        run: |
+          if not exist runtime\Model.cmd exit /b 1
+          findstr /C:"launch_model.ps1" runtime\Model.cmd >nul
