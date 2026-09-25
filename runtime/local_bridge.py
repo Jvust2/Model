@@ -679,6 +679,7 @@ class Handler(BaseHTTPRequestHandler):
                     "model_server_port": MODEL_SERVER_PORT,
                     "ready_warn_seconds": MODEL_READY_WARN_SECONDS,
                     "video": VIDEO.snapshot(),
+                    "runtime_version": 9,
                 }
             )
             self._json(200, payload)
