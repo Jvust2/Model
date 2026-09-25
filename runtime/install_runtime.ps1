@@ -12,6 +12,7 @@ $appDir = Join-Path $baseDir "app"
 $configPath = Join-Path $baseDir "runtime.json"
 $logsDir = Join-Path $baseDir "logs"
 $cacheDir = Join-Path $baseDir "cache"
+$trayPidPath = Join-Path $baseDir "tray.pid"
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $runName = "JvustModelRuntime"
 $siteUrl = "https://jvust2.github.io/Model/"
@@ -120,6 +121,22 @@ function Save-Config([string]$llamaPath) {
     $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
 }
 
+function Stop-ExistingTray {
+    if (-not (Test-Path -LiteralPath $trayPidPath -PathType Leaf)) {
+        return
+    }
+
+    try {
+        $trayPid = [int](Get-Content -LiteralPath $trayPidPath -Raw)
+        if ($trayPid -gt 0 -and $trayPid -ne $PID) {
+            Stop-Process -Id $trayPid -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 300
+        }
+    } catch {}
+
+    Remove-Item -LiteralPath $trayPidPath -Force -ErrorAction SilentlyContinue
+}
+
 function Stop-ExistingRuntime {
     try {
         $health = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 1
@@ -190,6 +207,7 @@ if (-not $llamaPath) {
     $llamaPath = Pick-LlamaServer
 }
 
+Stop-ExistingTray
 Stop-ExistingRuntime
 
 foreach ($name in $required) {
@@ -208,11 +226,9 @@ Write-Host "Auto-start  : enabled for current Windows user"
 Write-Host ""
 
 if (-not $NoStart) {
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", (Join-Path $appDir "background.ps1")
-    )
+    $backgroundPath = Join-Path $appDir "background.ps1"
+    $backgroundArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $backgroundPath + '"'
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList $backgroundArgs
     Start-Sleep -Seconds 1
     try {
         $health = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 2
