@@ -120,12 +120,12 @@ $notify.Text = "Model Runtime"
 $notify.Visible = $true
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
-$openItem = $menu.Items.Add("打开 Model 网页")
-$statusItem = $menu.Items.Add("Runtime 状态：启动中")
-$logsItem = $menu.Items.Add("打开日志")
-$restartItem = $menu.Items.Add("重启 Runtime")
+$openItem = $menu.Items.Add("Open Model")
+$statusItem = $menu.Items.Add("Runtime: starting")
+$logsItem = $menu.Items.Add("Open logs")
+$restartItem = $menu.Items.Add("Restart Runtime")
 $menu.Items.Add("-") | Out-Null
-$exitItem = $menu.Items.Add("退出本次 Runtime")
+$exitItem = $menu.Items.Add("Exit Runtime")
 $notify.ContextMenuStrip = $menu
 
 $startBridgeAction = {
@@ -134,7 +134,7 @@ $startBridgeAction = {
     try {
         $health = Invoke-RestMethod -Uri "$bridgeUrl/health" -TimeoutSec 1
         if ($health.ok) {
-            $statusItem.Text = "Runtime 状态：已连接"
+            $statusItem.Text = "Runtime: connected"
             return
         }
     } catch {}
@@ -150,9 +150,9 @@ $startBridgeAction = {
     $script:lastStart = [DateTime]::Now
     try {
         $script:bridgeProcess = Start-Bridge $python $config
-        $statusItem.Text = "Runtime 状态：启动中"
+        $statusItem.Text = "Runtime: starting"
     } catch {
-        $statusItem.Text = "Runtime 状态：启动失败"
+        $statusItem.Text = "Runtime: failed"
         $notify.ShowBalloonTip(
             5000,
             "Model Runtime",
@@ -192,12 +192,12 @@ $timer.add_Tick({
     try {
         $health = Invoke-RestMethod -Uri "$bridgeUrl/health" -TimeoutSec 1
         if ($health.ok) {
-            $statusItem.Text = "Runtime 状态：已连接"
+            $statusItem.Text = "Runtime: connected"
             return
         }
     } catch {}
 
-    $statusItem.Text = "Runtime 状态：未连接"
+    $statusItem.Text = "Runtime: disconnected"
     & $startBridgeAction
 })
 
@@ -206,7 +206,7 @@ $timer.add_Tick({
 $notify.ShowBalloonTip(
     2500,
     "Model Runtime",
-    "后台引擎已启动。以后直接打开 Model 网页即可。",
+    "后台引擎已启动。以后直接Open Model即可。",
     [System.Windows.Forms.ToolTipIcon]::Info
 )
 
