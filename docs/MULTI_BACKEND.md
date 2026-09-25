@@ -53,7 +53,7 @@ The backend target is selected from model_metadata.json first.
 
 ### Direct automatic launch
 
-- GGUF through llama.cpp.
+- GGUF through Google Drive API → resumable local cache → llama.cpp.
 
 ### Backend identified, adapter still required
 
@@ -69,6 +69,8 @@ The Runtime can detect whether these environments are installed and can return a
 ## Runtime endpoints
 
     GET  /v1/backends
+    POST /v1/drive/session
+    POST /v1/models/cache
     POST /v1/models/plan
 
 /v1/backends reports local backend availability without exposing local filesystem paths.
@@ -78,7 +80,7 @@ The Runtime can detect whether these environments are installed and can return a
 - target backend
 - workspace
 - backend detection status
-- local package visibility
+- Drive API session / cache mode
 - required dependencies
 - whether automatic launch is currently implemented
 

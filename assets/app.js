@@ -7,6 +7,7 @@
   let runtimeState = null;
   let backendState = null;
   let runtimePollTimer = null;
+  let runtimeReconnectTimer = null;
   let chatBusy = false;
   let chatHistory = [];
 
@@ -45,6 +46,22 @@
     return runtimeBase.replace(/\/$/, "") + path;
   }
 
+  async function syncRuntimeDriveSession() {
+    if (!accessToken) {
+      await ensureAccessToken();
+    }
+    const response = await fetch(runtimeUrl("/v1/drive/session"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: accessToken })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || "无法把 Drive 会话同步到本机 Runtime。");
+    }
+    return true;
+  }
+
   function clearRuntimePoll() {
     if (runtimePollTimer) {
       clearTimeout(runtimePollTimer);
@@ -52,9 +69,38 @@
     }
   }
 
+  function clearRuntimeReconnect() {
+    if (runtimeReconnectTimer) {
+      clearTimeout(runtimeReconnectTimer);
+      runtimeReconnectTimer = null;
+    }
+  }
+
+  function scheduleRuntimeReconnect(delay = 3000) {
+    clearRuntimeReconnect();
+    runtimeReconnectTimer = setTimeout(async () => {
+      const ok = await refreshRuntime();
+      if (!ok) scheduleRuntimeReconnect(Math.min(delay + 1000, 10000));
+    }, delay);
+  }
+
+  function setRuntimeInstalledState(connected) {
+    const install = $("installRuntimeBtn");
+    const hint = $("runtimeHint");
+    if (install) install.hidden = connected;
+    if (hint) {
+      hint.textContent = connected
+        ? "本机 AI 引擎已自动连接。以后直接打开这个网页即可。"
+        : "未检测到本机 AI 引擎。首次安装一次后，以后只需要打开网页。";
+    }
+  }
+
   function scheduleRuntimeRefresh() {
     clearRuntimePoll();
-    if (runtimeState && runtimeState.running && runtimeState.phase === "loading") {
+    if (
+      runtimeState &&
+      (runtimeState.phase === "loading" || runtimeState.phase === "downloading")
+    ) {
       runtimePollTimer = setTimeout(() => {
         refreshRuntime().catch(() => {});
       }, 1000);
@@ -63,6 +109,17 @@
 
   function runtimeLabel(state) {
     if (!state) return "未连接本地 Runtime";
+    if (state.phase === "downloading") {
+      const pct =
+        typeof state.download_progress === "number"
+          ? Math.floor(state.download_progress * 100)
+          : null;
+      return (
+        "Drive 下载中 · " +
+        (state.model || "GGUF") +
+        (pct === null ? "" : " · " + pct + "%")
+      );
+    }
     if (state.running && state.ready) {
       return "已就绪 · " + (state.model || "GGUF");
     }
@@ -84,21 +141,9 @@
   }
 
   function updateDriveRuntimeCompatibility() {
-    if (!runtimeState || !runtimeState.drive_root_label) return;
-
-    const cloudRootName = localStorage.getItem("model_drive_root_name") || "";
-    if (
-      cloudRootName &&
-      cloudRootName.toLowerCase() !==
-        String(runtimeState.drive_root_label).toLowerCase()
-    ) {
-      setDriveState(
-        "注意：网页 Drive 根目录是“" +
-          cloudRootName +
-          "”，本机 Runtime 根目录是“" +
-          runtimeState.drive_root_label +
-          "”。启动前请确认它们对应同一文件夹。"
-      );
+    if (!runtimeState) return;
+    if (runtimeState.drive_api_session) {
+      setDriveState("Drive API 已连接 · Runtime 使用本机缓存，不需要 Google Drive 桌面版。");
     }
   }
 
@@ -125,6 +170,14 @@
       } catch (_) {
         backendState = null;
       }
+      if (accessToken) {
+        try {
+          await syncRuntimeDriveSession();
+          runtimeState.drive_api_session = true;
+        } catch (_) {}
+      }
+      clearRuntimeReconnect();
+      setRuntimeInstalledState(true);
       $("runtimeState").textContent = runtimeLabel(runtimeState);
       $("runtimeLog").textContent = runtimeLogText(runtimeState);
       $("stopBtn").disabled = !runtimeState.running;
@@ -136,9 +189,11 @@
     } catch (_) {
       runtimeState = null;
       backendState = null;
-      $("runtimeState").textContent = "未连接本地 Runtime";
-      $("runtimeLog").textContent = "无法读取 Runtime 状态。先运行 runtime\\Model.cmd。";
+      $("runtimeState").textContent = "未检测到本机 AI 引擎";
+      $("runtimeLog").textContent =
+        "网页会持续自动重连。若这是第一次使用，请先安装一次 Model Runtime。";
       $("stopBtn").disabled = true;
+      setRuntimeInstalledState(false);
       updateChatAvailability();
       return false;
     }
@@ -320,10 +375,16 @@
     setStatus("正在检查本机 GGUF 文件…");
 
     try {
+      await syncRuntimeDriveSession();
       const response = await fetch(runtimeUrl("/v1/models/inspect"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          drive_file_id: model.representativeFile && model.representativeFile.id,
+          file_name: model.representativeFile && model.representativeFile.name,
+          size: Number(model.representativeFile && model.representativeFile.size || 0),
+          md5_checksum: model.representativeFile && model.representativeFile.md5Checksum,
+          resource_key: model.representativeFile && model.representativeFile.resourceKey,
           relative_path: model.relativePath
         })
       });
@@ -332,7 +393,7 @@
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "本机找不到对应模型。请确认 Model.cmd 选择的本机 Drive 根目录，与网页当前 Drive 文件夹是同一个目录。"
+            "本机缓存中还没有这个模型。先点“本机启动”，Runtime 会直接从 Google Drive API 下载并缓存。"
         );
       }
 
@@ -527,7 +588,7 @@
         const launch = document.createElement("button");
         launch.type = "button";
         launch.dataset.icon = "play";
-        launch.textContent = "本机启动";
+        launch.textContent = "使用模型";
         launch.className = "primary";
         launch.addEventListener("click", () => startModel(model));
         actions.appendChild(launch);
@@ -629,14 +690,19 @@
     clearChat();
 
     try {
+      await syncRuntimeDriveSession();
       const response = await fetch(runtimeUrl("/v1/models/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           drive_file_id: model.representativeFile && model.representativeFile.id,
+          file_name: model.representativeFile && model.representativeFile.name,
+          display_name: model.name,
           name: model.name,
           relative_path: model.relativePath,
           size: Number(model.representativeFile && model.representativeFile.size || 0),
+          md5_checksum: model.representativeFile && model.representativeFile.md5Checksum,
+          resource_key: model.representativeFile && model.representativeFile.resourceKey,
           format: model.runnableFormat,
           backend: model.backend,
           category: model.category
@@ -647,16 +713,18 @@
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "Runtime 启动失败：" +
+            "模型启动失败：" +
               response.status +
-              "。请确认本机 Drive 根目录与网页选择的 Drive 文件夹一致。"
+              "。请确认本机 AI 引擎已连接，并重新连接 Google Drive 后再试。"
         );
       }
 
       setStatus(
-        data.ready
-          ? "本机模型已就绪 · PID " + data.pid
-          : "本机模型正在加载 · PID " + data.pid
+        data.phase === "downloading"
+          ? "正在从 Google Drive 下载到本机缓存…"
+          : data.ready
+            ? "本机模型已就绪"
+            : "本机模型正在加载"
       );
 
       await refreshRuntime();
@@ -747,10 +815,11 @@
         setDriveState("Drive 已连接 · 已保存模型根目录");
       }
     } else {
-      setDriveState("尚未连接 Google Drive。");
+      setDriveState("尚未连接 Google Drive。连接后模型由 Drive API 读取，不需要桌面版。");
     }
 
-    await refreshRuntime();
+    const runtimeOk = await refreshRuntime();
+    if (!runtimeOk) scheduleRuntimeReconnect();
   }
 
   $("loginBtn").addEventListener("click", () => {
@@ -772,6 +841,14 @@
     const ok = await refreshRuntime();
     setStatus(
       ok ? "本机 Runtime 已连接" : "无法连接本机 Runtime"
+    );
+  });
+
+  $("installRuntimeBtn").addEventListener("click", () => {
+    window.open(
+      "https://github.com/Jvust2/Model#one-time-windows-install",
+      "_blank",
+      "noopener,noreferrer"
     );
   });
 

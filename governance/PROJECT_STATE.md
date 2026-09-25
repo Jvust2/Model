@@ -4,13 +4,13 @@ Updated: 2026-09-25
 
 ## Mission
 
-Build a Drive-first AI model website where Google Drive is the model vault, the web UI discovers and classifies model packages, and inference runs through the correct local backend on the user's Windows computer.
+Build a Drive-first AI model website where Google Drive remains the model vault, the website discovers/classifies model packages, and local inference runs without requiring Google Drive for desktop.
 
 ## Current state
 
-Status: **v0.6 multi-backend model-package routing in progress**
+Status: **v0.8 web-first background Runtime**
 
-Verified on the live site:
+Verified on the live site before this branch:
 
 - GitHub Pages deployment works.
 - Google OAuth returns to the Model site.
@@ -18,65 +18,72 @@ Verified on the live site:
 - `AI-Model-Vault` is auto-discovered.
 - A real Drive scan completed across 203 folders and found 80 model-weight files.
 
-Implemented:
+Implemented on this branch:
 
-- Google Drive OAuth/session flow.
-- Google Drive API v3 metadata access.
-- Recursive Drive discovery and Range diagnostics.
-- Drive-root discovery with manual folder-ID fallback.
-- `model_metadata.json` loading from the Drive vault.
-- Model-weight files grouped into model packages instead of being treated as independent models.
-- Registry-first category/modality/runtime classification.
-- Backend routing for llama.cpp / ComfyUI / Diffusers / Transformers / PyTorch / ONNX Runtime / TFLite.
-- Runtime backend detection endpoint: `GET /v1/backends`.
-- Runtime execution-plan endpoint: `POST /v1/models/plan`.
-- Path-private backend diagnostics.
-- GGUF direct launch through llama.cpp remains functional.
-- Same-page local chat for llama.cpp models.
-- Windows one-click Runtime launcher.
-- OAuth Bridge source is versioned in the repository.
+- Added one-time `runtime/Install.cmd` for normal Windows use.
+- Packaged Windows builds include standalone `ModelRuntime.exe`; user Python is not required.
+- Runtime installs under `%LOCALAPPDATA%\JvustModel\app`.
+- Current-user Windows auto-start is registered under HKCU.
+- A tray Runtime keeps the localhost engine alive and restarts it after failures.
+- The website automatically reconnects to localhost Runtime; manual checking is no longer the normal flow.
+- The main UI hides the technical Runtime URL/logs under advanced diagnostics.
+- Added `runtime/Uninstall.cmd`.
+- Removed the Google Drive desktop mount requirement from the Windows launcher.
+- First-run setup now asks only for `llama-server.exe`.
+- Runtime cache defaults to `%LOCALAPPDATA%\JvustModel\cache`.
+- Browser syncs the short-lived Google Drive access token to localhost Runtime memory only.
+- Runtime accepts Drive file metadata by file ID.
+- GGUF files can be downloaded directly from Google Drive API to local cache.
+- Partial `.part` downloads can resume with HTTP Range.
+- Cached models are reused on later launches.
+- OAuth access tokens are not written to cache metadata or config.
+- GGUF launch automatically continues after the Drive download completes.
+- Runtime status exposes download bytes/progress.
+- Existing multi-backend model-package routing remains in place.
+- Non-GGUF family adapters remain a separate next step.
 
 ## Architecture invariants
 
 1. Google Drive remains canonical model storage.
-2. `AI-Model-Vault/model_metadata.json` is the capability/runtime registry when available.
-3. A model package is a directory/family of related files, not an individual weight shard.
-4. GitHub stores code/governance only, never model weights or OAuth secrets.
-5. Native inference remains local.
-6. The web Drive root and `MODEL_DRIVE_ROOT` must identify the same model root.
-7. Runtime binds to localhost.
-8. Relative model paths are confined below `MODEL_DRIVE_ROOT`.
-9. The website never receives local filesystem write access.
-10. Backend detection must not expose full local filesystem paths.
-11. A format extension alone is not enough to claim a model is automatically runnable.
-12. GGUF + llama.cpp is the first fully automatic adapter.
-13. Other backends become automatic only after a model-family-specific workflow/adapter exists.
+2. Google Drive for desktop is not required.
+3. GitHub stores code/governance only, never model weights or OAuth secrets.
+4. OAuth access tokens passed to localhost Runtime are memory-only.
+5. Runtime binds to localhost and enforces allowed browser origins.
+6. Model cache is local implementation detail and may be deleted/rebuilt.
+7. A Drive file ID is never used directly as a filesystem path.
+8. GGUF direct launch requires a complete verified local cache file.
+9. A model format extension alone does not imply that arbitrary non-GGUF files are executable.
+10. Model-family-specific adapters are required for ComfyUI / Diffusers / Transformers / PyTorch families.
 
-## Current user flow
+## Normal user flow
 
+    One-time: Install.cmd
+       ↓
+    Windows login auto-starts tray Runtime
+       ↓
     Open Model website
        ↓
     Connect Google Drive
        ↓
-    Auto-find AI-Model-Vault
+    Scan AI-Model-Vault
        ↓
-    Scan Drive
+    Select GGUF model
        ↓
-    Load model_metadata.json
+    Browser sends temporary Drive token + file ID to localhost
        ↓
-    Group weight shards into model packages
+    Runtime downloads/resumes file into local cache
        ↓
-    Route package to backend/workspace
+    Validate GGUF header
        ↓
-    Runtime checks local backend and package visibility
+    Launch llama-server from cache
        ↓
-    Direct launch when an adapter exists
+    Chat in the website
 
 ## Current backend state
 
 | Backend | Detection | Automatic launch |
 | --- | --- | --- |
-| llama.cpp | yes | yes |
+| llama.cpp | yes | yes, via Drive API cache |
 | ComfyUI | yes | not yet |
 | Diffusers | yes | not yet |
 | Transformers | yes | not yet |
@@ -84,15 +91,12 @@ Implemented:
 | ONNX Runtime | yes | not yet |
 | TFLite | yes | not yet |
 
-"Detection" means the Runtime can identify whether the local environment is available. It does not mean arbitrary weight files can already be launched safely.
-
 ## Next technical steps
 
-1. Finish CI validation for model-package grouping and backend planning.
-2. Add ComfyUI workflow adapters for Wan2.2 / Qwen-Image / FLUX families.
-3. Add Diffusers pipeline adapters where model families are supported cleanly.
-4. Add Transformers adapters for GOT-OCR and Qwen embedding/reranker families.
-5. Add PyTorch adapters for Chronos / TimesFM.
-6. Add workspace-specific web UIs: image, image-edit, video, vision/OCR, embedding and time-series.
-7. Add token/output streaming and benchmark capture.
-8. Evaluate sparse-cache / virtual filesystem direct Drive-file-ID access after mounted-drive adapters are stable.
+1. Validate a real Drive GGUF download + cache + llama.cpp round trip on Windows.
+2. Add cache management UI: size, clear selected model, clear all.
+3. Add cancellation for active Drive downloads.
+4. Add ComfyUI package download/workflow adapters for Wan2.2 / Qwen-Image / FLUX.
+5. Add Transformers/PyTorch package adapters.
+6. Add workspace-specific image/video/OCR/embedding/time-series UIs.
+7. Evaluate sparse-cache / virtual filesystem access only after the full-file cache path is stable.

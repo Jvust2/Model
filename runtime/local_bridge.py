@@ -18,14 +18,15 @@ from urllib.request import Request, urlopen
 
 try:
     from .backends import backend_status, model_plan
+    from .drive_cache import DriveCache, DriveFileSpec
 except ImportError:
     from backends import backend_status, model_plan
+    from drive_cache import DriveCache, DriveFileSpec
 
 HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.environ.get("MODEL_BRIDGE_PORT", "8765"))
 MODEL_SERVER_PORT = int(os.environ.get("MODEL_SERVER_PORT", "8080"))
 LLAMA_SERVER_PATH = os.environ.get("LLAMA_SERVER_PATH", "llama-server")
-MODEL_DRIVE_ROOT = os.environ.get("MODEL_DRIVE_ROOT", "")
 MODEL_GPU_LAYERS = int(os.environ.get("MODEL_GPU_LAYERS", "0"))
 MODEL_THREADS = int(
     os.environ.get(
@@ -124,6 +125,37 @@ def llama_health_status() -> dict:
         return {"reachable": False, "ready": False, "status": None}
 
 
+class DriveSession:
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.access_token: str | None = None
+
+    def set(self, access_token: str) -> None:
+        token = str(access_token or "").strip()
+        if not token:
+            raise ValueError("Google Drive access token is required.")
+        if len(token) > 8192:
+            raise ValueError("Google Drive access token is unexpectedly large.")
+        with self.lock:
+            self.access_token = token
+
+    def get(self) -> str:
+        with self.lock:
+            if not self.access_token:
+                raise PermissionError(
+                    "Runtime has no Google Drive session. Reconnect Drive in the website."
+                )
+            return self.access_token
+
+    def clear(self) -> None:
+        with self.lock:
+            self.access_token = None
+
+
+DRIVE_SESSION = DriveSession()
+DRIVE_CACHE = DriveCache()
+
+
 def build_chat_payload(payload: dict, model_name: str | None) -> dict:
     messages = payload.get("messages")
     if not isinstance(messages, list) or not messages:
@@ -206,11 +238,16 @@ class RuntimeState:
         self.process: subprocess.Popen[str] | None = None
         self.model: str | None = None
         self.model_relative_path: str | None = None
+        self.source_drive_file_id: str | None = None
         self.started_at: float | None = None
         self.ready_at: float | None = None
         self.phase = "idle"
         self.last_error: str | None = None
         self.exit_code: int | None = None
+        self.downloaded_bytes = 0
+        self.download_total_bytes: int | None = None
+        self.cache_file: str | None = None
+        self.job_id = 0
         self.logs: deque[str] = deque(maxlen=300)
 
     def append_log(self, line: str) -> None:
@@ -226,13 +263,21 @@ class RuntimeState:
             running = bool(process and process.poll() is None)
             started_at = self.started_at if running else None
             uptime = max(0.0, time.time() - started_at) if started_at else None
+            total = self.download_total_bytes
+            downloaded = self.downloaded_bytes
+            progress = (
+                min(1.0, downloaded / total)
+                if total and total > 0
+                else None
+            )
             return {
                 "running": running,
                 "ready": running and self.phase == "ready",
                 "phase": self.phase,
                 "pid": process.pid if running and process else None,
-                "model": self.model if running else None,
-                "model_relative_path": self.model_relative_path if running else None,
+                "model": self.model,
+                "model_relative_path": self.model_relative_path,
+                "source_drive_file_id": self.source_drive_file_id,
                 "started_at": started_at,
                 "ready_at": self.ready_at if running else None,
                 "uptime_seconds": uptime,
@@ -240,6 +285,10 @@ class RuntimeState:
                 "cpu_threads": MODEL_THREADS,
                 "gpu_layers": MODEL_GPU_LAYERS,
                 "load_mode": MODEL_LOAD_MODE,
+                "downloaded_bytes": downloaded,
+                "download_total_bytes": total,
+                "download_progress": progress,
+                "cache_file": self.cache_file,
                 "last_error": self.last_error,
                 "exit_code": self.exit_code,
                 "logs": list(self.logs),
@@ -247,15 +296,20 @@ class RuntimeState:
 
     def stop(self) -> None:
         with self.lock:
+            self.job_id += 1
             process = self.process
             self.process = None
             self.model = None
             self.model_relative_path = None
+            self.source_drive_file_id = None
             self.started_at = None
             self.ready_at = None
             self.phase = "idle"
             self.last_error = None
             self.exit_code = None
+            self.downloaded_bytes = 0
+            self.download_total_bytes = None
+            self.cache_file = None
 
         if not process or process.poll() is not None:
             return
@@ -268,9 +322,85 @@ class RuntimeState:
             process.kill()
             process.wait(timeout=5)
 
-    def start(self, model_path: Path, model_name: str, relative_path: str) -> dict:
+    def start_drive(
+        self,
+        spec: DriveFileSpec,
+        model_name: str,
+        relative_path: str,
+        access_token: str,
+    ) -> dict:
         self.stop()
+        with self.lock:
+            job_id = self.job_id
+            self.model = model_name
+            self.model_relative_path = relative_path
+            self.source_drive_file_id = spec.file_id
+            self.phase = "downloading"
+            self.downloaded_bytes = 0
+            self.download_total_bytes = spec.size
+            self.last_error = None
+            self.exit_code = None
 
+        cached = DRIVE_CACHE.cached_path(spec)
+        if cached:
+            self.append_log(f"Using cached Drive model: {model_name}")
+            with self.lock:
+                self.downloaded_bytes = cached.stat().st_size
+                self.download_total_bytes = spec.size or cached.stat().st_size
+                self.cache_file = cached.name
+            self._launch_cached(job_id, cached, model_name, relative_path)
+            return self.snapshot()
+
+        self.append_log(f"Downloading from Google Drive: {model_name}")
+        threading.Thread(
+            target=self._download_and_launch,
+            args=(job_id, spec, model_name, relative_path, access_token),
+            daemon=True,
+        ).start()
+        return self.snapshot()
+
+    def _download_and_launch(
+        self,
+        job_id: int,
+        spec: DriveFileSpec,
+        model_name: str,
+        relative_path: str,
+        access_token: str,
+    ) -> None:
+        def progress(received: int, total: int | None) -> None:
+            with self.lock:
+                if self.job_id != job_id:
+                    return
+                self.downloaded_bytes = received
+                self.download_total_bytes = total
+
+        try:
+            model_path = DRIVE_CACHE.download(spec, access_token, progress)
+            with self.lock:
+                if self.job_id != job_id:
+                    return
+                self.cache_file = model_path.name
+            self.append_log(f"Drive download complete: {model_name}")
+            self._launch_cached(job_id, model_path, model_name, relative_path)
+        except Exception as error:
+            with self.lock:
+                if self.job_id != job_id:
+                    return
+                self.phase = "failed"
+                self.last_error = str(error)
+            self.append_log("Drive cache failed: " + str(error))
+
+    def _launch_cached(
+        self,
+        job_id: int,
+        model_path: Path,
+        model_name: str,
+        relative_path: str,
+    ) -> None:
+        if model_path.suffix.lower() != ".gguf":
+            raise ValueError("llama.cpp direct launch requires a GGUF file.")
+
+        gguf = inspect_gguf(model_path)
         executable = resolve_llama_server()
         if not executable:
             raise FileNotFoundError(
@@ -298,7 +428,7 @@ class RuntimeState:
             creationflags = subprocess.CREATE_NO_WINDOW
 
         self.append_log(
-            "Launching llama-server: "
+            "Launching llama-server from Drive cache: "
             f"model={model_name} threads={MODEL_THREADS} "
             f"gpu_layers={MODEL_GPU_LAYERS} load_mode={MODEL_LOAD_MODE}"
         )
@@ -315,9 +445,10 @@ class RuntimeState:
         )
 
         with self.lock:
+            if self.job_id != job_id:
+                process.terminate()
+                return
             self.process = process
-            self.model = model_name
-            self.model_relative_path = relative_path
             self.started_at = time.time()
             self.ready_at = None
             self.phase = "loading"
@@ -334,7 +465,9 @@ class RuntimeState:
             self._mark_failed(process, message, exit_code)
             raise RuntimeError(message + " Check runtime logs and LLAMA_SERVER_PATH.")
 
-        return self.snapshot()
+        self.append_log(
+            f"Cached GGUF verified: v{gguf['version']} tensors={gguf['tensor_count']}"
+        )
 
     def _mark_failed(
         self, process: subprocess.Popen[str], message: str, exit_code: int | None = None
@@ -414,49 +547,9 @@ STATE = RuntimeState()
 atexit.register(STATE.stop)
 
 
-def safe_relative_path(relative_path: str) -> Path:
-    if not MODEL_DRIVE_ROOT:
-        raise ValueError("MODEL_DRIVE_ROOT is not configured.")
-
-    relative = str(relative_path or "").replace("/", os.sep)
-    candidate_rel = Path(relative)
-
-    if not relative.strip() or candidate_rel.is_absolute() or ".." in candidate_rel.parts:
-        raise ValueError("Invalid relative model path.")
-
-    root = Path(MODEL_DRIVE_ROOT).expanduser().resolve()
-    candidate = (root / candidate_rel).resolve()
-
-    try:
-        common = os.path.commonpath([str(root), str(candidate)])
-    except ValueError as exc:
-        raise ValueError("Model path escapes MODEL_DRIVE_ROOT.") from exc
-
-    if os.path.normcase(common) != os.path.normcase(str(root)):
-        raise ValueError("Model path escapes MODEL_DRIVE_ROOT.")
-
-    if not candidate.exists():
-        raise FileNotFoundError(
-            "Model package is not visible at the mounted Drive path."
-        )
-
-    return candidate
-
-
-def safe_model_path(relative_path: str) -> Path:
-    candidate = safe_relative_path(relative_path)
-
-    if candidate.suffix.lower() != ".gguf":
-        raise ValueError("The local llama.cpp path only launches GGUF models.")
-
-    if not candidate.is_file():
-        raise FileNotFoundError("GGUF model path is not a file.")
-
-    return candidate
-
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.6"
+    server_version = "DriveModelBridge/0.8"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -504,7 +597,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 6})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 8})
             return
 
         if path == "/v1/backends":
@@ -521,13 +614,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = STATE.snapshot()
             payload.update(
                 {
-                    "drive_root_configured": bool(MODEL_DRIVE_ROOT),
-                    "drive_root_exists": bool(
-                        MODEL_DRIVE_ROOT and Path(MODEL_DRIVE_ROOT).expanduser().exists()
-                    ),
-                    "drive_root_label": (
-                        Path(MODEL_DRIVE_ROOT).expanduser().name if MODEL_DRIVE_ROOT else None
-                    ),
+                    "drive_api_session": bool(DRIVE_SESSION.access_token),
+                    "cache_root_label": DRIVE_CACHE.root.name,
                     "llama_server_found": resolve_llama_server() is not None,
                     "bridge_port": BRIDGE_PORT,
                     "model_server_port": MODEL_SERVER_PORT,
@@ -562,23 +650,6 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/models/plan":
                 backend = str(payload.get("backend") or "")
                 category = str(payload.get("category") or "unknown")
-                package_path = str(
-                    payload.get("package_path")
-                    or payload.get("relative_path")
-                    or ""
-                )
-
-                local_kind = None
-                local_exists = False
-                local_error = None
-                if package_path:
-                    try:
-                        package = safe_relative_path(package_path)
-                        local_exists = True
-                        local_kind = "directory" if package.is_dir() else "file"
-                    except (ValueError, FileNotFoundError) as error:
-                        local_error = str(error)
-
                 plan = model_plan(backend, category)
                 status = backend_status(LLAMA_SERVER_PATH)["backends"].get(
                     backend,
@@ -590,37 +661,65 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 plan.update(
                     {
-                        "local_exists": local_exists,
-                        "local_kind": local_kind,
-                        "local_error": local_error,
+                        "drive_api_session": bool(DRIVE_SESSION.access_token),
+                        "cache_mode": "drive-api",
                         "backend_status": status,
                     }
                 )
                 self._json(200, {"ok": True, "plan": plan})
                 return
 
+            if path == "/v1/drive/session":
+                DRIVE_SESSION.set(str(payload.get("access_token") or ""))
+                self._json(200, {"ok": True, "stored": "memory-only"})
+                return
+
+            if path == "/v1/models/cache":
+                spec = DriveFileSpec.from_payload(payload)
+                info = DRIVE_CACHE.describe(spec)
+                self._json(200, {"ok": True, "cache": info})
+                return
+
             if path == "/v1/models/inspect":
-                relative_path = str(payload.get("relative_path") or "")
-                model_path = safe_model_path(relative_path)
+                spec = DriveFileSpec.from_payload(payload)
+                model_path = DRIVE_CACHE.cached_path(spec)
+                if not model_path:
+                    self._json(
+                        409,
+                        {
+                            "error": "Model is not cached yet. Start it once to download from Drive.",
+                            "cache": DRIVE_CACHE.describe(spec),
+                        },
+                    )
+                    return
                 self._json(200, {"ok": True, "gguf": inspect_gguf(model_path)})
                 return
 
             if path == "/v1/models/start":
-                relative_path = str(payload.get("relative_path") or "")
-                model_name = str(payload.get("name") or Path(relative_path).name)
-                model_path = safe_model_path(relative_path)
-                gguf = inspect_gguf(model_path)
-                result = STATE.start(model_path, model_name, relative_path)
+                spec = DriveFileSpec.from_payload(payload)
+                if Path(spec.name).suffix.lower() != ".gguf":
+                    raise ValueError("Direct llama.cpp launch currently supports GGUF only.")
+
+                model_name = str(payload.get("display_name") or payload.get("name") or spec.name)
+                relative_path = str(payload.get("relative_path") or spec.name)
+                token = DRIVE_SESSION.get()
+                result = STATE.start_drive(
+                    spec,
+                    model_name,
+                    relative_path,
+                    token,
+                )
                 self._json(
                     202,
                     {
                         "ok": True,
-                        "pid": result["pid"],
                         "model": result["model"],
                         "phase": result["phase"],
                         "ready": result["ready"],
-                        "server_url": result["server_url"],
-                        "gguf": gguf,
+                        "downloaded_bytes": result["downloaded_bytes"],
+                        "download_total_bytes": result["download_total_bytes"],
+                        "download_progress": result["download_progress"],
+                        "cache_file": result["cache_file"],
                     },
                 )
                 return
@@ -641,9 +740,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.6")
+    print("Drive Model Local Runtime v0.8")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
-    print("Drive root:", MODEL_DRIVE_ROOT or "(not configured)")
+    print("Drive source: Google Drive API (no desktop mount required)")
+    print("Cache root:", DRIVE_CACHE.root)
     print("llama-server:", LLAMA_SERVER_PATH)
     print("llama-server found:", bool(resolve_llama_server()))
     print("CPU threads:", MODEL_THREADS)

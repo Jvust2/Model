@@ -6,51 +6,19 @@ from pathlib import Path
 import runtime.local_bridge as bridge
 
 
-class SafeModelPathTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        self.old_root = bridge.MODEL_DRIVE_ROOT
-        bridge.MODEL_DRIVE_ROOT = str(self.root)
+class DriveSessionTests(unittest.TestCase):
+    def test_token_is_memory_only_state(self):
+        session = bridge.DriveSession()
+        session.set("token-value")
+        self.assertEqual(session.get(), "token-value")
+        session.clear()
+        with self.assertRaises(PermissionError):
+            session.get()
 
-    def tearDown(self):
-        bridge.MODEL_DRIVE_ROOT = self.old_root
-        self.temp.cleanup()
-
-    def test_accepts_gguf_below_drive_root(self):
-        model = self.root / "folder" / "model.gguf"
-        model.parent.mkdir(parents=True)
-        model.write_bytes(b"GGUF" + b"\x00" * 20)
-        resolved = bridge.safe_model_path("folder/model.gguf")
-        self.assertEqual(resolved, model.resolve())
-
-    def test_rejects_empty_path(self):
+    def test_rejects_empty_token(self):
+        session = bridge.DriveSession()
         with self.assertRaises(ValueError):
-            bridge.safe_model_path("")
-
-    def test_rejects_parent_traversal(self):
-        with self.assertRaises(ValueError):
-            bridge.safe_model_path("../outside.gguf")
-
-    def test_rejects_non_gguf(self):
-        model = self.root / "model.safetensors"
-        model.write_bytes(b"x")
-        with self.assertRaises(ValueError):
-            bridge.safe_model_path("model.safetensors")
-
-    def test_rejects_missing_model(self):
-        with self.assertRaises(FileNotFoundError):
-            bridge.safe_model_path("missing.gguf")
-
-    def test_safe_relative_path_accepts_model_package_directory(self):
-        package = self.root / "video_ultra" / "Wan2.2-Animate-14B"
-        package.mkdir(parents=True)
-        resolved = bridge.safe_relative_path("video_ultra/Wan2.2-Animate-14B")
-        self.assertEqual(resolved, package.resolve())
-
-    def test_safe_relative_path_rejects_traversal(self):
-        with self.assertRaises(ValueError):
-            bridge.safe_relative_path("../outside")
+            session.set("")
 
 
 class GgufInspectionTests(unittest.TestCase):
