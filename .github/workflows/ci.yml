@@ -32,6 +32,7 @@ jobs:
           node --check assets/drive-client.js
           node --check assets/app.js
           node --check sw.js
+          node --check workers/drive-oauth-bridge.mjs
 
       - name: Verify Google API website contract
         run: |
