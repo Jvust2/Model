@@ -3,7 +3,7 @@ name: runtime-package-web
 on:
   push:
     branches:
-      - feat/drive-api-runtime-cache
+      - feat/video-runtime-v09
 
 permissions:
   contents: read
@@ -20,8 +20,8 @@ jobs:
       - name: Build standalone Runtime EXE
         shell: powershell
         run: |
-          python -m pip install --disable-pip-version-check pyinstaller
-          python -m PyInstaller --onefile --name ModelRuntime --paths runtime runtime\local_bridge.py
+          python -m pip install --disable-pip-version-check pyinstaller py7zr
+          python -m PyInstaller --onefile --name ModelRuntime --paths runtime --collect-all py7zr --add-data "runtime\workflows;workflows" runtime\local_bridge.py
           Copy-Item -Force dist\ModelRuntime.exe runtime\ModelRuntime.exe
 
       - name: Smoke test standalone Runtime EXE
@@ -105,11 +105,11 @@ jobs:
           Copy-Item -Force index.html "$root\index.html"
           Copy-Item -Recurse -Force assets "$root\assets"
           Copy-Item -Force sw.js "$root\sw.js"
-          Compress-Archive -Path "$root\*" -DestinationPath "Model-Web-Runtime-v0.8.1.zip" -Force
+          Compress-Archive -Path "$root\*" -DestinationPath "Model-Web-Runtime-v0.9.zip" -Force
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Model-Web-Runtime-v0.8.1
-          path: Model-Web-Runtime-v0.8.1.zip
+          name: Model-Web-Runtime-v0.9
+          path: Model-Web-Runtime-v0.9.zip
           if-no-files-found: error
