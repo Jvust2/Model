@@ -1,131 +1,122 @@
 # Model
 
-Drive-first local AI website: use Google Drive API for the web model library, while inference runs on the current Windows computer.
+Drive-first local AI website: Google Drive is the model vault, the website discovers and classifies model packages, and the correct local runtime performs inference.
 
-## Product flow
+## Current flow
 
     Open Model website
           ↓
-    Connect Google Drive (OAuth)
+    Connect Google Drive
           ↓
     Auto-find AI-Model-Vault
           ↓
-    Scan model metadata with Drive API
+    Scan Drive metadata
           ↓
-    Select a GGUF
+    Load model_metadata.json
           ↓
-    Local Runtime maps the relative path below MODEL_DRIVE_ROOT
+    Group weight shards into model packages
           ↓
-    llama.cpp loads from the Google Drive desktop mount
+    Choose backend + workspace
           ↓
-    Chat on the same website
+    Local Runtime checks environment
+          ↓
+    Launch through a supported adapter
 
-Google Drive remains the canonical model storage. GitHub stores code/governance only. The local computer provides CPU/GPU inference.
+The live OAuth + Drive scan path is already working.
 
-## Why both Drive API and Google Drive desktop?
+## Model packages instead of raw weight files
 
-They solve different parts:
+Files such as:
 
-- **Google Drive API + OAuth**: website login, cloud folder discovery, metadata, file IDs, Range diagnostics.
-- **Google Drive for desktop**: exposes a seekable filesystem path that native llama.cpp can load.
-- **Local Runtime**: safely maps the Drive API relative path below the configured local Drive root and launches llama.cpp.
+- `.safetensors`
+- `.pth`
+- `.pt`
+- `.ckpt`
+- `.gguf`
+- `.onnx`
 
-The API does not perform inference and does not require Google Cloud GPU.
+are indexed, but multiple files inside one model directory are grouped into one model package.
 
-## Website
+For example, the Wan2.2-Animate-14B shard files are one model package, not several separate models.
 
-Current website includes:
+## Drive metadata registry
 
-- Google Drive OAuth through the existing OAuth bridge.
-- Automatic discovery of a root-level folder named `AI-Model-Vault`.
-- Manual folder ID fallback.
-- Recursive Drive model metadata scan.
-- Session-scoped model index.
-- Drive Range probe.
-- GGUF local-path validation and fixed-header inspection.
-- Local start/stop and readiness state.
-- Built-in local chat.
-- Runtime log/diagnostic panel.
-- Warning when the cloud Drive root name and the local Runtime root name differ.
-- GitHub Pages deployment workflow.
+The website reads:
 
-No private Drive folder ID is committed to GitHub.
+    AI-Model-Vault/model_metadata.json
 
-## One-click Windows Runtime
+and uses its category, modality, recommended runtime and device-fit metadata before falling back to path/extension heuristics.
+
+## Backend routing
+
+Current backend targets:
+
+- GGUF → llama.cpp
+- image/video packages → ComfyUI / Diffusers
+- OCR/multimodal/RAG → Transformers
+- time-series → PyTorch
+- ONNX → ONNX Runtime
+- TFLite → TFLite
+
+The website no longer labels every non-GGUF model as "暂不支持运行".
+
+Instead, each package exposes a **运行方案** and a backend-specific preparation action.
+
+## What can automatically launch today?
+
+### Direct
+
+- GGUF through llama.cpp.
+
+### Detected/planned but model-family adapter still required
+
+- ComfyUI
+- Diffusers
+- Transformers
+- PyTorch
+- ONNX Runtime
+- TFLite
+
+This distinction is intentional: arbitrary safetensors/PTH/CKPT files are not self-describing executable applications.
+
+See `docs/MULTI_BACKEND.md`.
+
+## Local Runtime
 
 Run:
 
     runtime\Model.cmd
 
-First run asks for:
+The Runtime remains bound to localhost.
 
-1. the local Google Drive desktop folder corresponding to the website's model root;
-2. `llama-server.exe`.
+Additional endpoints:
 
-The paths are saved locally at:
+    GET  /v1/backends
+    POST /v1/models/plan
 
-    %LOCALAPPDATA%\JvustModel\runtime.json
+These report backend readiness and per-model execution requirements without exposing full local filesystem paths.
 
-Later runs reuse those paths and open the Model website automatically.
+## Google Drive + local mount
 
-## Runtime architecture
+Google Drive API is used for cloud discovery and metadata.
 
-    GitHub Pages
-        │
-        ├── OAuth Bridge
-        │       ↓
-        │   Google Drive API
-        │       ↓
-        │   cloud model metadata / Range reads
-        │
-        └── http://127.0.0.1:8765
-                    ↓
-             Local Runtime Bridge
-                    ↓
-               llama-server
-                    ↓
-        Google Drive desktop mount
-                    ↓
-               model GGUF
+Google Drive for desktop supplies native, seekable local paths to runtimes that need them.
 
-The public site never exposes llama.cpp directly to the network.
+The website-selected Drive root and `MODEL_DRIVE_ROOT` must refer to the same `AI-Model-Vault` folder.
 
-## Root-path invariant
+## Website
 
-The folder selected by the website and the folder configured as `MODEL_DRIVE_ROOT` must represent the same Drive folder.
-
-Example:
-
-    Website Drive root: AI-Model-Vault
-    MODEL_DRIVE_ROOT: G:\My Drive\AI-Model-Vault
-
-A Drive API relative path such as:
-
-    llm/Qwen/model.gguf
-
-must resolve locally as:
-
-    G:\My Drive\AI-Model-Vault\llm\Qwen\model.gguf
-
-The website warns when the cloud root name and local Runtime root name differ.
-
-## Deployment
-
-The static website is prepared for GitHub Pages with `.github/workflows/pages.yml`.
-
-Expected site after Pages is enabled and this work reaches `main`:
+Expected production URL:
 
     https://jvust2.github.io/Model/
 
-## Validation still needed on the real PC
+## Next adapters
 
-1. Verify/enable GitHub Pages.
-2. Verify the existing OAuth bridge redirects back to the final Model site.
-3. Connect Google Drive and auto-find `AI-Model-Vault`.
-4. Run `runtime\Model.cmd` with the matching local Drive folder.
-5. Start a known-good small GGUF.
-6. Complete a real web chat round trip.
-7. Benchmark cold-load traffic/cache, RAM and tokens/s.
+1. ComfyUI workflows for Wan2.2 / Qwen-Image / FLUX.
+2. Diffusers model-family pipelines.
+3. Transformers adapters for GOT-OCR and Qwen embedding/reranker.
+4. PyTorch adapters for Chronos / TimesFM.
+5. Workspace UIs for image, video, edit, vision/OCR, embedding and time-series.
 
 Source pattern: `Jvust/drive-original-player`
 Target: `Jvust2/Model`
