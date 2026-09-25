@@ -4,31 +4,32 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>星模 · Drive AI Runtime</title>
-  <meta name="description" content="模型留在 Google Drive，本机 CPU/GPU 负责推理，并直接在网页聊天。" />
+  <meta name="description" content="通过 Google Drive API 浏览模型，本机 CPU/GPU 负责推理，并直接在网页聊天。" />
   <meta name="theme-color" content="#0b0f1d" />
   <link rel="icon" href="./assets/star.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/model.css?v=3" />
+  <link rel="stylesheet" href="./assets/model.css?v=6" />
 </head>
 <body>
   <header class="site-header shell">
     <div class="brand">
       <img src="./assets/star.svg" alt="" />
-      <div>星模<small>DRIVE / LOCAL AI</small></div>
+      <div>星模<small>GOOGLE DRIVE / LOCAL AI</small></div>
     </div>
     <div id="status" role="status" aria-live="polite">准备中</div>
   </header>
 
   <main class="shell">
     <section class="hero">
-      <div class="kicker">DRIVE-FIRST · LOCAL COMPUTE · WEB CHAT</div>
-      <h1>模型留在云端，<br /><span>直接从网站启动和聊天。</span></h1>
+      <div class="kicker">GOOGLE DRIVE API · LOCAL COMPUTE · WEB CHAT</div>
+      <h1>打开网站看 Drive 模型，<br /><span>点击后在本机运行。</span></h1>
       <p>
-        网站负责 Google Drive 模型库、选择、状态和聊天；本机 Runtime 只负责调用 llama.cpp 与 CPU/GPU。
-        模型权重不提交到 GitHub。
+        Google Drive API 负责登录、发现和读取模型元数据；模型推理由本机 Runtime + llama.cpp 完成。
+        GitHub 不保存模型权重。
       </p>
       <div class="hero-actions">
         <button id="loginBtn" data-icon="cloud" class="primary" type="button">连接 Google Drive</button>
-        <button id="scanBtn" data-icon="chart" type="button">扫描模型文件夹</button>
+        <button id="findVaultBtn" type="button">寻找 AI-Model-Vault</button>
+        <button id="scanBtn" data-icon="chart" type="button">扫描模型</button>
       </div>
     </section>
 
@@ -38,12 +39,14 @@
       <div class="panel">
         <h2>Google Drive 模型库</h2>
         <div class="field">
-          <label for="folderId">模型根文件夹 ID（可填 root）</label>
-          <input id="folderId" value="root" autocomplete="off" spellcheck="false" />
+          <label for="folderName">自动寻找的文件夹名称</label>
+          <input id="folderName" value="AI-Model-Vault" autocomplete="off" spellcheck="false" />
         </div>
-        <div class="note">
-          扫描只读取文件名、大小、Drive ID 等元数据，不会为了建索引下载整个模型。
+        <div class="field">
+          <label for="folderId">当前模型根文件夹 ID（找不到时可手动填写）</label>
+          <input id="folderId" value="" placeholder="连接 Drive 后自动寻找" autocomplete="off" spellcheck="false" />
         </div>
+        <div id="driveState" class="note">尚未连接 Google Drive。</div>
       </div>
 
       <div class="panel">
@@ -85,7 +88,7 @@
       <div class="library-head">
         <div>
           <h2>模型库</h2>
-          <p>GGUF 可直接交给 llama.cpp；其他格式先进入索引。</p>
+          <p>Drive API 只建立索引；GGUF 启动时由本机 Runtime 从 Drive 挂载路径读取。</p>
         </div>
         <div id="modelCount">0 个模型文件</div>
       </div>
@@ -93,13 +96,13 @@
     </section>
 
     <div class="note footer-note">
-      当前链路：GitHub Pages 网站 → localhost Runtime → llama.cpp → Google Drive 流式挂载模型 → 本机 CPU/GPU。
+      当前链路：Google Drive API → 网站模型库 → localhost Runtime → llama.cpp → Google Drive 桌面版挂载模型 → 本机 CPU/GPU。
     </div>
   </main>
 
-  <script src="./assets/config.js?v=3"></script>
-  <script src="./assets/model-index.js?v=3"></script>
-  <script src="./assets/drive-client.js?v=3"></script>
-  <script src="./assets/app.js?v=3"></script>
+  <script src="./assets/config.js?v=6"></script>
+  <script src="./assets/model-index.js?v=6"></script>
+  <script src="./assets/drive-client.js?v=6"></script>
+  <script src="./assets/app.js?v=6"></script>
 </body>
 </html>

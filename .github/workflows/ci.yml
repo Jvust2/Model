@@ -33,7 +33,7 @@ jobs:
           node --check assets/app.js
           node --check sw.js
 
-      - name: Verify website contract
+      - name: Verify Google API website contract
         run: |
           test -f index.html
           test -f .github/workflows/pages.yml
@@ -41,10 +41,13 @@ jobs:
           test -f governance/ARCHITECTURE.md
           test -f runtime/Model.cmd
           test -f runtime/launch_model.ps1
-          test -f docs/WINDOWS_ONE_CLICK.md
-          grep -q 'id="chatForm"' index.html
+          grep -q 'oauthBridge' assets/config.js
+          grep -q 'preferredFolderName' assets/config.js
+          grep -q 'findFolderByName' assets/drive-client.js
+          grep -q 'AI-Model-Vault' index.html
+          grep -q 'findVaultBtn' index.html
           grep -q '/v1/chat/completions' assets/app.js
-          grep -q '/v1/chat/completions' runtime/local_bridge.py
+          grep -q 'drive_root_label' runtime/local_bridge.py
 
   windows-launcher:
     runs-on: windows-latest

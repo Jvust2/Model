@@ -48,6 +48,10 @@
     }
   }
 
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
   function escapeQueryLiteral(value) {
     return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   }
@@ -122,6 +126,49 @@
     return response.json();
   }
 
+  async function findFolderByName(accessToken, name, parentId = "root") {
+    if (!accessToken) throw new Error("Google Drive 尚未授权。");
+
+    const folderName = String(name || "").trim();
+    const parent = String(parentId || "root").trim() || "root";
+    if (!folderName) throw new Error("文件夹名称不能为空。");
+
+    const query = [
+      "mimeType = '" + FOLDER_MIME + "'",
+      "name = '" + escapeQueryLiteral(folderName) + "'",
+      "'" + escapeQueryLiteral(parent) + "' in parents",
+      "trashed = false"
+    ].join(" and ");
+
+    const params = new URLSearchParams({
+      q: query,
+      fields: "files(id,name,mimeType,modifiedTime,resourceKey,parents,driveId)",
+      pageSize: "100",
+      orderBy: "modifiedTime desc",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true"
+    });
+
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files?" + params.toString(),
+      {
+        headers: { Authorization: "Bearer " + accessToken },
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("查找 Drive 文件夹失败：" + response.status);
+    }
+
+    const data = await response.json();
+    const folders = Array.isArray(data.files) ? data.files : [];
+    return {
+      folder: folders[0] || null,
+      matches: folders
+    };
+  }
+
   async function scanModelTree(accessToken, requestedRootId, onProgress) {
     if (!accessToken) throw new Error("Google Drive 尚未授权。");
 
@@ -160,6 +207,7 @@
           node.file.resourceKey || null,
           pageToken
         );
+
         for (const file of page.files || []) {
           const childPath = node.relativePath
             ? node.relativePath + "/" + file.name
@@ -187,12 +235,17 @@
             });
           }
         }
+
         pageToken = page.nextPageToken || "";
       } while (pageToken);
 
       node.scanned = true;
       if (typeof onProgress === "function") {
-        onProgress({ scannedFolders, modelFiles, currentFolder: node.file.name });
+        onProgress({
+          scannedFolders,
+          modelFiles,
+          currentFolder: node.file.name
+        });
       }
     }
 
@@ -223,6 +276,7 @@
       navigator.serviceWorker.controller ||
       registration.active ||
       registration.waiting;
+
     if (!worker) return false;
     worker.postMessage({ type: "SET_TOKEN", token: accessToken });
     return true;
@@ -232,6 +286,7 @@
     if (!file || !file.id || !Number(file.size)) {
       throw new Error("该文件缺少 Drive ID 或大小。");
     }
+
     await setServiceWorkerToken(accessToken);
 
     const bytes = Number(CONFIG.rangeProbeBytes || 4096);
@@ -240,7 +295,10 @@
 
     const response = await fetch(
       "./drive-model/" + encodeURIComponent(file.id) + "?" + params.toString(),
-      { headers: { Range: "bytes=0-" + (bytes - 1) }, cache: "no-store" }
+      {
+        headers: { Range: "bytes=0-" + (bytes - 1) },
+        cache: "no-store"
+      }
     );
 
     if (!response.ok && response.status !== 206) {
@@ -258,7 +316,9 @@
   window.DriveModelClient = {
     authorizeDrive,
     captureOAuthSession,
+    clearSession,
     fetchMetadata,
+    findFolderByName,
     getAccessToken,
     probeRange,
     registerServiceWorker,

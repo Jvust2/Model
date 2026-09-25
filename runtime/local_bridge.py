@@ -442,7 +442,7 @@ def safe_model_path(relative_path: str) -> Path:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.3"
+    server_version = "DriveModelBridge/0.4"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -490,7 +490,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 3})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 4})
             return
 
         if path == "/v1/runtime":
@@ -577,7 +577,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.3")
+    print("Drive Model Local Runtime v0.4")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive root:", MODEL_DRIVE_ROOT or "(not configured)")
     print("llama-server:", LLAMA_SERVER_PATH)

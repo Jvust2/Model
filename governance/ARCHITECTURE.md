@@ -3,46 +3,50 @@
 ## Data path
 
 ```text
-Browser UI
+Browser / GitHub Pages
   │
-  ├─ Google Drive API: list metadata only
+  ├─ OAuth Bridge
+  │     ↓
+  │  Google Drive API
+  │     ├─ folder discovery
+  │     ├─ recursive model metadata scan
+  │     └─ Range diagnostics
   │
-  ├─ Service Worker: range-only model-byte experiments
-  │
-  └─ localhost bridge: start/stop/status
-                         │
-                         ↓
-                  llama.cpp server
-                         │
-                         ↓
-              mounted/streamed Drive path
-                         │
-                         ↓
-                    Google Drive
+  └─ localhost Runtime Bridge (127.0.0.1)
+          │
+          ├─ start / stop / status / inspect / chat
+          │
+          ↓
+      llama-server
+          │
+          ↓
+  Google Drive desktop mount
+          │
+          ↓
+      Google Drive
 ```
 
-## Components
+## Web UI responsibilities
 
-### Web UI
+- Authenticate with Google Drive through the OAuth bridge.
+- Automatically find the preferred root folder name, currently `AI-Model-Vault`.
+- Preserve a manual folder-ID fallback.
+- Recursively enumerate supported model files through Drive API v3.
+- Store metadata-only model index in session storage.
+- Show format, size and Drive-relative path.
+- Send GGUF relative paths to localhost Runtime.
+- Chat through the localhost bridge after llama.cpp becomes ready.
 
-Responsibilities:
+The browser does not receive native filesystem access.
 
-- Authenticate to Google Drive through the OAuth bridge.
-- Select a root folder.
-- Recursively enumerate folders and supported model files.
-- Show model format, size and relative path.
-- Send a selected GGUF relative path to the localhost bridge.
+## Drive API responsibilities
 
-The web UI does not run native inference directly.
+Drive API is used for cloud identity and metadata, not inference.
 
-### Model index
-
-The model index is metadata-only and uses `sessionStorage`.
-
-It may store:
+Stored/indexed fields may include:
 
 - Drive file ID
-- name
+- file name
 - MIME type
 - size
 - modified time
@@ -50,39 +54,68 @@ It may store:
 - resource key
 - relative path
 
-It must not store model bytes.
+Model bytes are not persisted by the website.
 
-### Service Worker
+## Service Worker
 
-The Service Worker provides a range-only endpoint:
+The Service Worker keeps the Range-only diagnostic path:
 
 ```text
 /drive-model/<fileId>?size=<bytes>&resourceKey=<key>
 ```
 
-This is useful for validating random-access reads and future virtual-file work. It intentionally does not fetch a whole model when the browser omits a Range header.
+It is for validating Drive byte-range behavior and future virtual-file experiments. A request without a Range header is rejected for model files.
 
-### Local Runtime Bridge
+## Local Runtime Bridge
 
-The bridge is a localhost control plane.
-
-Initial endpoints:
+The bridge binds to localhost and exposes:
 
 - `GET /health`
 - `GET /v1/runtime`
+- `POST /v1/models/inspect`
 - `POST /v1/models/start`
 - `POST /v1/models/stop`
+- `POST /v1/chat/completions`
 
-The bridge accepts a relative path only, joins it below `MODEL_DRIVE_ROOT`, validates the result, then launches llama.cpp.
+The Runtime receives only a relative model path, resolves it below `MODEL_DRIVE_ROOT`, prevents path escape, validates GGUF, and starts llama.cpp.
 
-### Actual model I/O in v0.1
+Runtime status exposes only the local root basename (`drive_root_label`) rather than the full absolute root path.
 
-The runnable path is a mounted/streamed Google Drive filesystem such as Google Drive for desktop streaming mode.
+## Cloud-to-local path invariant
 
-This preserves Drive as the source of truth while allowing native runtimes such as llama.cpp to receive the seekable filesystem path they expect.
+The website Drive root and `MODEL_DRIVE_ROOT` must refer to the same folder.
 
-## Why not feed the browser Service Worker directly into llama.cpp?
+Drive API:
 
-A browser Service Worker can serve HTTP byte ranges, but normal llama.cpp model loading expects a seekable filesystem file and commonly uses memory mapping. A separate virtual filesystem or sparse-file adapter is required to bridge those models safely and efficiently.
+```text
+AI-Model-Vault/
+  llm/Qwen/model.gguf
+```
 
-That adapter is intentionally deferred until the baseline runtime is measured.
+Local mount:
+
+```text
+G:\My Drive\AI-Model-Vault\llm\Qwen\model.gguf
+```
+
+The shared relative path is:
+
+```text
+llm/Qwen/model.gguf
+```
+
+This is the bridge between Drive API discovery and native local inference.
+
+## Why not use Drive API bytes directly for llama.cpp?
+
+Drive API supports byte-range reads, but normal llama.cpp expects a seekable native file and commonly uses OS-level file access/memory mapping. The mounted-drive baseline is therefore kept until a virtual filesystem or sparse-cache adapter is proven.
+
+## Security invariants
+
+1. GitHub never stores model weights or OAuth secrets.
+2. Drive API uses read-only access for the website.
+3. Runtime binds to localhost.
+4. Browser Origins are checked before local control/chat requests.
+5. Relative model paths are confined below `MODEL_DRIVE_ROOT`.
+6. The website does not receive local filesystem write access.
+7. Full local absolute model paths are not returned to the public site.

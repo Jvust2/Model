@@ -1,135 +1,131 @@
 # Model
 
-Drive-first local AI website: keep model files in Google Drive while inference runs on the current Windows computer.
+Drive-first local AI website: use Google Drive API for the web model library, while inference runs on the current Windows computer.
 
-## What it is
-
-Model turns the Drive-first idea into a website workflow:
+## Product flow
 
     Open Model website
           ↓
-    Connect Google Drive
+    Connect Google Drive (OAuth)
           ↓
-    Browse / select a GGUF
+    Auto-find AI-Model-Vault
           ↓
-    Start local Runtime
+    Scan model metadata with Drive API
           ↓
-    llama.cpp loads the Drive-mounted model
+    Select a GGUF
+          ↓
+    Local Runtime maps the relative path below MODEL_DRIVE_ROOT
+          ↓
+    llama.cpp loads from the Google Drive desktop mount
           ↓
     Chat on the same website
 
-Google Drive remains the canonical source for model files. GitHub stores code and governance only. The local computer provides CPU/GPU inference.
+Google Drive remains the canonical model storage. GitHub stores code/governance only. The local computer provides CPU/GPU inference.
 
-## Current v0.3 website
+## Why both Drive API and Google Drive desktop?
 
-The website now includes:
+They solve different parts:
 
-- Google Drive sign-in and recursive model discovery.
-- Model library with path, format and size.
+- **Google Drive API + OAuth**: website login, cloud folder discovery, metadata, file IDs, Range diagnostics.
+- **Google Drive for desktop**: exposes a seekable filesystem path that native llama.cpp can load.
+- **Local Runtime**: safely maps the Drive API relative path below the configured local Drive root and launches llama.cpp.
+
+The API does not perform inference and does not require Google Cloud GPU.
+
+## Website
+
+Current website includes:
+
+- Google Drive OAuth through the existing OAuth bridge.
+- Automatic discovery of a root-level folder named `AI-Model-Vault`.
+- Manual folder ID fallback.
+- Recursive Drive model metadata scan.
+- Session-scoped model index.
 - Drive Range probe.
-- GGUF fixed-header validation.
-- Local model start/stop controls.
-- Loading / ready / failed state.
-- Runtime logs.
-- Built-in local chat UI.
-- Temperature and max-token controls.
-- Responsive desktop/mobile layout.
+- GGUF local-path validation and fixed-header inspection.
+- Local start/stop and readiness state.
+- Built-in local chat.
+- Runtime log/diagnostic panel.
+- Warning when the cloud Drive root name and the local Runtime root name differ.
 - GitHub Pages deployment workflow.
 
-## One-click Windows launcher
+No private Drive folder ID is committed to GitHub.
 
-For normal use, run:
+## One-click Windows Runtime
+
+Run:
 
     runtime\Model.cmd
 
-First run asks for only:
+First run asks for:
 
-1. your Google Drive model root;
-2. llama-server.exe.
+1. the local Google Drive desktop folder corresponding to the website's model root;
+2. `llama-server.exe`.
 
-Those paths are saved locally in:
+The paths are saved locally at:
 
     %LOCALAPPDATA%\JvustModel\runtime.json
 
-Later runs reuse the saved configuration, start the localhost bridge, and open the Model website automatically.
-
-If the public GitHub Pages site is not available yet, the launcher automatically falls back to:
-
-    http://127.0.0.1:8000/
-
-To change the saved paths:
-
-    runtime\Model.cmd -ResetConfig
-
-See docs/WINDOWS_ONE_CLICK.md for details.
+Later runs reuse those paths and open the Model website automatically.
 
 ## Runtime architecture
 
-    GitHub Pages website
-            │
-            ├── Google Drive API: model metadata / Range tests
-            │
-            └── 127.0.0.1:8765
-                     │
-                     ↓
-              Local Runtime Bridge
-                     │
-                     ↓
-                llama-server
-                     │
-                     ↓
-           mounted/streamed Drive path
-                     │
-                     ↓
-                Google Drive
+    GitHub Pages
+        │
+        ├── OAuth Bridge
+        │       ↓
+        │   Google Drive API
+        │       ↓
+        │   cloud model metadata / Range reads
+        │
+        └── http://127.0.0.1:8765
+                    ↓
+             Local Runtime Bridge
+                    ↓
+               llama-server
+                    ↓
+        Google Drive desktop mount
+                    ↓
+               model GGUF
 
-The public website never exposes llama.cpp directly to the network. Chat requests go to the localhost bridge, which forwards them to llama.cpp's OpenAI-compatible local endpoint.
+The public site never exposes llama.cpp directly to the network.
 
-## Runtime configuration
+## Root-path invariant
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| MODEL_DRIVE_ROOT | required | Mounted/streamed Google Drive model root |
-| LLAMA_SERVER_PATH | llama-server | llama.cpp server executable |
-| MODEL_BRIDGE_PORT | 8765 | Local bridge HTTP port |
-| MODEL_SERVER_PORT | 8080 | llama-server port |
-| MODEL_THREADS | CPU count - 2 | CPU inference threads |
-| MODEL_GPU_LAYERS | 0 | GPU layers; 0 is CPU-only |
-| MODEL_LOAD_MODE | none | llama.cpp load mode |
-| MODEL_READY_WARN_SECONDS | 300 | Slow-load warning threshold |
-| MODEL_HEALTH_INTERVAL | 0.5 | llama.cpp health polling interval |
-| MODEL_CHAT_TIMEOUT | 600 | Local chat request timeout |
-| MODEL_ALLOWED_ORIGINS | localhost + Jvust2 GitHub Pages | Origins allowed to control the bridge |
+The folder selected by the website and the folder configured as `MODEL_DRIVE_ROOT` must represent the same Drive folder.
 
-## Security boundaries
+Example:
 
-- Runtime binds to localhost.
-- Browser Origin is checked before Runtime control/chat calls.
-- Model paths are relative and confined below MODEL_DRIVE_ROOT.
-- Only GGUF is executable in the current llama.cpp path.
-- Full local absolute model paths are not returned to the website.
-- Runtime launcher config stores only local filesystem paths.
-- OAuth secrets, refresh tokens and model weights must never be committed to GitHub.
+    Website Drive root: AI-Model-Vault
+    MODEL_DRIVE_ROOT: G:\My Drive\AI-Model-Vault
+
+A Drive API relative path such as:
+
+    llm/Qwen/model.gguf
+
+must resolve locally as:
+
+    G:\My Drive\AI-Model-Vault\llm\Qwen\model.gguf
+
+The website warns when the cloud root name and local Runtime root name differ.
 
 ## Deployment
 
-The static site is prepared for GitHub Pages through .github/workflows/pages.yml.
+The static website is prepared for GitHub Pages with `.github/workflows/pages.yml`.
 
-Pages still needs GitHub Actions selected as the repository publishing source before the first production deployment if Pages is currently disabled.
-
-Expected site:
+Expected site after Pages is enabled and this work reaches `main`:
 
     https://jvust2.github.io/Model/
 
 ## Validation still needed on the real PC
 
-1. Enable/verify GitHub Pages.
-2. Verify OAuth returns to the final Model site.
-3. Run runtime/Model.cmd.
-4. Scan the real Drive model root.
-5. Start a small known-good GGUF.
-6. Send a real chat message from the site.
-7. Record load time, cache/network use, RAM and tokens/s.
+1. Verify/enable GitHub Pages.
+2. Verify the existing OAuth bridge redirects back to the final Model site.
+3. Connect Google Drive and auto-find `AI-Model-Vault`.
+4. Run `runtime\Model.cmd` with the matching local Drive folder.
+5. Start a known-good small GGUF.
+6. Complete a real web chat round trip.
+7. Benchmark cold-load traffic/cache, RAM and tokens/s.
 
-Source pattern: Jvust/drive-original-player
-Target project: Jvust2/Model
+Source pattern: `Jvust/drive-original-player`
+Target: `Jvust2/Model`
