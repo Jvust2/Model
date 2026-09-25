@@ -22,9 +22,11 @@ Double-click:
 
     runtime\Model.cmd
 
-The launcher asks for only:
+The packaged Runtime includes a standalone `ModelRuntime.exe`, so system Python is not required.
 
-- `llama-server.exe`
+The installer asks for only:
+
+- `llama-server.exe` when it cannot be found automatically
 
 Saved config:
 
