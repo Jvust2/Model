@@ -154,7 +154,12 @@
 
       let pageToken = "";
       do {
-        const page = await listChildren(\n          accessToken,\n          node.file.id,\n          node.file.resourceKey || null,\n          pageToken\n        );
+        const page = await listChildren(
+          accessToken,
+          node.file.id,
+          node.file.resourceKey || null,
+          pageToken
+        );
         for (const file of page.files || []) {
           const childPath = node.relativePath
             ? node.relativePath + "/" + file.name
