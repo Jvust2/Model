@@ -11,6 +11,7 @@ $logsDir = Join-Path $baseDir "logs"
 $cacheDir = Join-Path $baseDir "cache"
 $stdoutPath = Join-Path $logsDir "runtime.stdout.log"
 $stderrPath = Join-Path $logsDir "runtime.stderr.log"
+$trayPidPath = Join-Path $baseDir "tray.pid"
 $siteUrl = "https://jvust2.github.io/Model/"
 $bridgeUrl = "http://127.0.0.1:8765"
 
@@ -59,16 +60,17 @@ function Start-Bridge {
     $env:MODEL_READY_WARN_SECONDS = [string]$config.readyWarnSeconds
     $env:MODEL_CACHE_ROOT = $cacheDir
 
-    $processArgs = @($python.PrefixArgs) + @($bridgeScript)
-    $processArgs = @(
-        $processArgs |
+    $prefix = @(
+        @($python.PrefixArgs) |
             Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
             ForEach-Object { [string]$_ }
     )
+    $quotedBridge = '"' + $bridgeScript + '"'
+    $argumentLine = (@($prefix) + @($quotedBridge)) -join " "
 
     $params = @{
         FilePath = $python.File
-        ArgumentList = $processArgs
+        ArgumentList = $argumentLine
         WorkingDirectory = $appDir
         WindowStyle = "Hidden"
         RedirectStandardOutput = $stdoutPath
@@ -99,6 +101,9 @@ $mutex = New-Object System.Threading.Mutex($true, "JvustModelRuntimeTray", [ref]
 if (-not $createdNew) {
     exit 0
 }
+
+New-Item -ItemType Directory -Force -Path $baseDir | Out-Null
+Set-Content -LiteralPath $trayPidPath -Value ([string]$PID) -Encoding ASCII
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -214,6 +219,7 @@ finally {
     $timer.Stop()
     Stop-Bridge $script:bridgeProcess
     $notify.Visible = $false
+    Remove-Item -LiteralPath $trayPidPath -Force -ErrorAction SilentlyContinue
     try { $mutex.ReleaseMutex() | Out-Null } catch {}
     $mutex.Dispose()
 }
