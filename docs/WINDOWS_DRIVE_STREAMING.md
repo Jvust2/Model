@@ -1,120 +1,54 @@
-# Windows: run models from Google Drive streaming storage
+# Windows direct Google Drive API model loading
 
-This is the recommended v0.1 path when the goal is:
+The old Google Drive Desktop streaming path is deprecated.
 
-- model source stays in Google Drive;
-- inference runs on the current Windows computer;
-- a complete permanent copy is not intentionally placed in a normal local model folder.
+Model now uses:
 
-## 1. Use a streamed Drive filesystem
+    Google Drive API
+      ↓
+    localhost Runtime
+      ↓
+    resumable local cache
+      ↓
+    llama.cpp / backend
 
-Use Google Drive for desktop in **streaming** mode rather than mirroring the whole model library.
+## Requirements
 
-The result should look like a normal Windows path, for example:
+- Windows
+- Python 3.10+
+- `llama-server.exe`
+- enough local disk space for the selected model cache
 
-```text
-G:\My Drive\Models\Qwen\model.gguf
-```
+Google Drive for desktop is not required.
 
-The exact drive letter and folder names may differ.
+## Automatic launcher
 
-Important: streaming does not mean zero local disk use. Google Drive for desktop may keep temporary blocks/cache locally as the native runtime reads the model. The canonical model remains in Drive, but temporary cache behavior is controlled by the Drive client.
+Run:
 
-## 2. Install llama.cpp
+    runtime\Model.cmd
 
-Build or install llama.cpp and locate:
+Connect Drive in the web UI. The web OAuth token is transferred only to localhost Runtime memory.
 
-```text
-llama-server.exe
-```
-
-The Model project does not bundle llama.cpp binaries.
-
-## 3. Start the Local Runtime Bridge
-
-From PowerShell in this repository:
-
-```powershell
-.\runtime\start_bridge.ps1 `
-  -DriveRoot "G:\My Drive\Models" `
-  -LlamaServerPath "D:\llama.cpp\llama-server.exe"
-```
-
-The defaults are:
-
-- Bridge: `http://127.0.0.1:8765`
-- llama-server: `http://127.0.0.1:8080`
-- GPU layers: `0` (CPU only)
-- `--no-mmap`: enabled
-
-`--no-mmap` is enabled because network/streamed filesystems are a different workload from local SSD model files. It asks llama.cpp to use normal reads instead of relying on memory mapping.
-
-## 4. Open the web UI
-
-For a local test:
-
-```powershell
-python -m http.server 8000
-```
-
-Open:
-
-```text
-http://127.0.0.1:8000/
-```
-
-The Local Runtime Bridge allows this origin by default.
-
-## 5. Connect Google Drive
-
-The web UI uses the same OAuth session pattern as `drive-original-player`.
-
-After authorization:
-
-1. Enter the Drive model folder ID.
-2. Scan.
-3. GGUF files appear in the model library.
-4. Click **本机启动**.
-
-The relative Drive path sent by the web UI must match the folder layout under `MODEL_DRIVE_ROOT`.
+## Manual bridge
 
 Example:
 
-```text
-Drive folder selected in browser:
-Models/
+    .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe"
 
-Indexed model:
-Qwen/model.gguf
+Optional custom cache:
 
-MODEL_DRIVE_ROOT:
-G:\My Drive\Models
+    .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe" -CacheRoot "D:\ModelCache"
 
-Runtime resolves:
-G:\My Drive\Models\Qwen\model.gguf
-```
+## Cache behavior
 
-## 6. CPU vs GPU
+The first GGUF launch downloads from Drive API.
 
-CPU is the default:
+Interrupted transfers keep a `.part` file and use HTTP Range to resume when supported.
 
-```text
-MODEL_GPU_LAYERS=0
-```
+Later launches reuse the valid complete cache.
 
-To experiment with GPU offload, pass a non-zero value:
+## Why full local cache instead of pure remote random access?
 
-```powershell
-.\runtime\start_bridge.ps1 `
-  -DriveRoot "G:\My Drive\Models" `
-  -LlamaServerPath "D:\llama.cpp\llama-server.exe" `
-  -GpuLayers 20
-```
+Standard llama.cpp expects a seekable local file and may use memory mapping/native filesystem access. A full-file cache is the reliable baseline.
 
-Whether a model fits depends on model size, quantization, context length, RAM/VRAM and llama.cpp build options.
-
-## What is not implemented yet
-
-The browser Service Worker can already prove that Drive model bytes support Range reads, but llama.cpp does not consume that browser endpoint directly.
-
-A future virtual filesystem/sparse-cache layer can map a Drive file ID into a seekable local-file abstraction. Until then, the streamed Drive mount is the simplest native-runtime bridge.
+A future sparse-cache or virtual filesystem adapter may reduce local storage requirements, but it should only replace this baseline after correctness and performance are verified.
