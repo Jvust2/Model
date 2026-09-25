@@ -43,3 +43,10 @@ return_to is not an open redirect. Only these exact URLs are accepted:
 - https://jvust2.github.io/Model/
 
 Each browser session is stored under a SHA-256 hash and tied to the origin that initiated authorization.
+
+
+## OAuth state storage
+
+OAuth state is validated with a short-lived `__Host-drive_oauth_state` cookie using `HttpOnly`, `Secure`, and `SameSite=Lax`.
+
+This intentionally avoids storing the just-created OAuth state in Cloudflare KV, because an OAuth callback can arrive before a new KV value has propagated to another edge location. Refresh tokens and browser sessions still use OAUTH_KV.
