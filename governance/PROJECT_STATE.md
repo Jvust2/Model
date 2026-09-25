@@ -8,7 +8,7 @@ Build a Drive-first AI model website where Google Drive remains the model vault,
 
 ## Current state
 
-Status: **v0.7 direct Drive API runtime cache**
+Status: **v0.8 web-first background Runtime**
 
 Verified on the live site before this branch:
 
@@ -20,6 +20,13 @@ Verified on the live site before this branch:
 
 Implemented on this branch:
 
+- Added one-time `runtime/Install.cmd` for normal Windows use.
+- Runtime installs under `%LOCALAPPDATA%\JvustModel\app`.
+- Current-user Windows auto-start is registered under HKCU.
+- A tray Runtime keeps the localhost engine alive and restarts it after failures.
+- The website automatically reconnects to localhost Runtime; manual checking is no longer the normal flow.
+- The main UI hides the technical Runtime URL/logs under advanced diagnostics.
+- Added `runtime/Uninstall.cmd`.
 - Removed the Google Drive desktop mount requirement from the Windows launcher.
 - First-run setup now asks only for `llama-server.exe`.
 - Runtime cache defaults to `%LOCALAPPDATA%\JvustModel\cache`.
@@ -47,8 +54,12 @@ Implemented on this branch:
 9. A model format extension alone does not imply that arbitrary non-GGUF files are executable.
 10. Model-family-specific adapters are required for ComfyUI / Diffusers / Transformers / PyTorch families.
 
-## Current GGUF flow
+## Normal user flow
 
+    One-time: Install.cmd
+       ↓
+    Windows login auto-starts tray Runtime
+       ↓
     Open Model website
        ↓
     Connect Google Drive
