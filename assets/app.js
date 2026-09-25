@@ -819,7 +819,11 @@
         model.workspace || "generic",
         model.qualityTier || "",
         videoAdapter ? "网页视频适配已支持" : "",
-        info ? (info.detected ? "后端已检测" : "后端未安装") : ""
+        videoAdapter
+          ? "首次运行自动准备"
+          : info
+            ? (info.detected ? "后端已检测" : "后端未安装")
+            : ""
       ].filter(Boolean);
       meta.textContent = pieces.join(" · ");
 
