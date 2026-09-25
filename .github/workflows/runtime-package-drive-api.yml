@@ -1,0 +1,53 @@
+name: runtime-package-drive-api
+
+on:
+  push:
+    branches:
+      - feat/drive-api-runtime-cache
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse launcher
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "runtime\launch_model.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+
+      - name: Exercise launcher
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\launch_model.ps1 -SelfTest
+
+      - name: Build ZIP
+        shell: powershell
+        run: |
+          $root = "Model-Runtime"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item -Recurse -Force runtime "$root\runtime"
+          Copy-Item -Force README.md "$root\README.md"
+          Copy-Item -Force index.html "$root\index.html"
+          Copy-Item -Recurse -Force assets "$root\assets"
+          Copy-Item -Force sw.js "$root\sw.js"
+          Compress-Archive -Path "$root\*" -DestinationPath "Model-Runtime-DriveAPI.zip" -Force
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Model-Runtime-DriveAPI
+          path: Model-Runtime-DriveAPI.zip
+          if-no-files-found: error
