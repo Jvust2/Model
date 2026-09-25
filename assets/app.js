@@ -362,7 +362,7 @@
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "本机找不到对应模型。请确认 Model.cmd 选择的本机 Drive 根目录，与网页当前 Drive 文件夹是同一个目录。"
+            "本机缓存中还没有这个模型。先点“本机启动”，Runtime 会直接从 Google Drive API 下载并缓存。"
         );
       }
 
