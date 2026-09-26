@@ -198,4 +198,31 @@ assert.strictEqual(
   "image_base/Qwen-Image-2.1-GGUF"
 );
 
+
+const unregisteredRoot = folder("AI-Model-Vault", "", [
+  folder("llm", "llm", [
+    folder("Qwen3-0.6B-GGUF", "llm/Qwen3-0.6B-GGUF", [
+      file(
+        "qwen06",
+        "Qwen3-0.6B-Q8_0.gguf",
+        "llm/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf",
+        670000000
+      )
+    ])
+  ])
+]);
+const unregisteredPackages = window.DriveModelIndex.flattenPackages(
+  unregisteredRoot,
+  { schema_version: "1.0.0", models: [] }
+);
+const qwen06 = unregisteredPackages.find(
+  item => item.name === "Qwen3-0.6B-GGUF"
+);
+assert.ok(qwen06);
+assert.strictEqual(qwen06.category, "llm");
+assert.strictEqual(qwen06.backend, "llama.cpp");
+assert.strictEqual(qwen06.workspace, "chat");
+assert.strictEqual(qwen06.directLaunch, true);
+assert.ok(qwen06.relativePath.endsWith(".gguf"));
+
 console.log("model-index package tests passed");

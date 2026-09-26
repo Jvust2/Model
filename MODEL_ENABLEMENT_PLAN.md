@@ -155,6 +155,11 @@
 - 路由修正：包含 `.gguf` 的图像包按 `model_metadata.json` / 专用适配器路由到 ComfyUI，不再仅凭扩展名误判成 llama.cpp 聊天模型。
 - 仓库迁移：权威 GitHub 地址已变更为 `Jvust/Model`；Runtime 同时允许新旧 Pages Origin 以兼容迁移期间访问。
 
+- 第三阶段继续推进：已选定官方 `Qwen/Qwen3-0.6B-GGUF` 的 `Qwen3-0.6B-Q8_0.gguf` 作为默认聊天链路验证模型（约 639 MB）；Drive 引导器已写入 `AI-Model-Vault/notebook_launchers/启动_Qwen3-0.6B_Q8_0_DriveFirst.ipynb`。
+- 引导器会把模型写入 canonical `AI-Model-Vault/llm/Qwen3-0.6B-GGUF/`，严格校验官方 SHA256 与 GGUF 固定头；现阶段“引导器已就绪”不等于“权重已经下载完成”。
+- 网页在未发现聊天 GGUF 时会显示“准备默认聊天模型”，自动定位 Drive 中的引导器并打开 Colab；完成后重新扫描即可复用现有 Drive API → `D:\Model` → llama.cpp → 网页聊天链路。
+- 索引修正：未登记但位于 `llm / reasoning / code / novel` 明确目录下的 `.gguf` 可被识别为 llama.cpp；图像目录中的 GGUF 仍不会被误判为聊天模型。
+
 ## 完成定义
 
 当用户在模型卡片上点击“使用模型”后，网页能自动完成检查、按需读取缓存、启动正确后端、提交任务并返回结果；如果模型当前不能运行，网页能在点击前准确说明缺少的权重、适配器或硬件条件。
