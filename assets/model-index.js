@@ -309,7 +309,7 @@
       if (!group.registry && entry) group.registry = entry;
     }
 
-    return Array.from(groups.values()).map(group => {
+    const packages = Array.from(groups.values()).map(group => {
       const entry = group.registry || null;
       const files = group.files.sort((a, b) =>
         String(a.relativePath).localeCompare(String(b.relativePath))
@@ -347,6 +347,7 @@
         packagePath: group.packagePath,
         files,
         fileCount: files.length,
+        vaultMissing: false,
         totalSize,
         representativeFile: representative,
         directLaunch:
@@ -357,7 +358,42 @@
             ? "gguf"
             : null
       };
-    }).sort((a, b) => {
+    });
+
+    const represented = new Set(packages.map(item => item.id));
+    if (registry && Array.isArray(registry.models)) {
+      for (const entry of registry.models) {
+        if (!entry.id || represented.has(entry.id)) continue;
+        const category = String(entry.category || "unknown");
+        packages.push({
+          id: entry.id,
+          name: entry.name || entry.id,
+          repo: entry.repo || "",
+          category,
+          modality: entry.modality || [],
+          capabilities: entry.capabilities || [],
+          artifactType: entry.artifact_type || "",
+          qualityTier: entry.quality_tier || "",
+          preferredArtifact: entry.preferred_artifact || "",
+          deviceFit: entry.device_fit || {},
+          recommendedRuntime: entry.recommended_runtime || [],
+          vaultStatus: entry.vault_status || "",
+          backend: chooseBackend(entry, []),
+          workspace: workspaceForCategory(category),
+          packagePath: "",
+          files: [],
+          fileCount: 0,
+          vaultMissing: true,
+          totalSize: 0,
+          representativeFile: null,
+          directLaunch: false,
+          relativePath: "",
+          runnableFormat: null
+        });
+      }
+    }
+
+    return packages.sort((a, b) => {
       const categoryCompare = String(a.category).localeCompare(String(b.category));
       return categoryCompare || String(a.name).localeCompare(String(b.name));
     });

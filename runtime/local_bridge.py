@@ -753,6 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                     category,
                     model_id=str(payload.get("model_id") or ""),
                     name=str(payload.get("name") or ""),
+                    artifact_present=payload.get("artifact_present") if isinstance(payload.get("artifact_present"), bool) else None,
                 )
                 status = backend_status(LLAMA_SERVER_PATH)["backends"].get(
                     backend,

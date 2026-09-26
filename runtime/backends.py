@@ -89,7 +89,7 @@ def backend_status(llama_server_path: str | None = None) -> dict:
     return {"backends": result, "python_modules": modules}
 
 
-def model_plan(backend: str, category: str | None = None, model_id: str | None = None, name: str | None = None) -> dict:
+def model_plan(backend: str, category: str | None = None, model_id: str | None = None, name: str | None = None, artifact_present: bool | None = None) -> dict:
     backend_name = str(backend or "").strip()
     category = str(category or "unknown").strip() or "unknown"
 
@@ -127,13 +127,15 @@ def model_plan(backend: str, category: str | None = None, model_id: str | None =
             "adapter": "llama.cpp",
             "reason": "GGUF 聊天后端已接入。",
         }
-    automatic = capability["availability"] == "automatic"
+    automatic = capability["availability"] == "automatic" and artifact_present is not False
     return {
         "backend": backend_name or "unknown",
         "category": category,
         "workspace": workspace,
         "automatic_launch": automatic,
         "availability": capability["availability"],
+        "vault_snapshot": capability.get("vault_snapshot", "unknown"),
+        "artifact_present": artifact_present,
         "availability_label": capability["label"],
         "adapter": capability["adapter"],
         "availability_reason": capability["reason"],
