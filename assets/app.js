@@ -4,6 +4,7 @@
   let accessToken = null;
   let models = [];
   let runtimeBase = "";
+  let runtimeToken = "";
   let runtimeState = null;
   let backendState = null;
   let modelCapabilities = window.MODEL_CAPABILITIES || {};
@@ -60,15 +61,40 @@
     return window.DriveModelIndex.extensionOf(name).replace(".", "").toUpperCase() || "FILE";
   }
 
+  function normalizeRuntimeBase(value) {
+    const raw = String(value || "").trim().replace(/\/$/, "");
+    const parsed = new URL(raw);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error("Runtime 地址只支持 http:// 或 https://。");
+    }
+    const host = String(parsed.hostname || "").toLowerCase();
+    const loopback = ["127.0.0.1", "localhost", "::1"].includes(host);
+    if (!loopback && parsed.protocol !== "https:") {
+      throw new Error("远程 Runtime 必须使用 HTTPS；推荐 Tailscale Serve。");
+    }
+    return raw;
+  }
+
   function runtimeUrl(path) {
     return runtimeBase.replace(/\/$/, "") + path;
+  }
+
+  function runtimeHeaders(headers = {}) {
+    const out = new Headers(headers || {});
+    if (runtimeToken) out.set("Authorization", "Bearer " + runtimeToken);
+    return out;
+  }
+
+  async function runtimeFetch(path, options = {}) {
+    const request = { ...options, headers: runtimeHeaders(options.headers) };
+    return fetch(runtimeUrl(path), request);
   }
 
   async function syncRuntimeDriveSession() {
     if (!accessToken) {
       await ensureAccessToken();
     }
-    const response = await fetch(runtimeUrl("/v1/drive/session"), {
+    const response = await runtimeFetch("/v1/drive/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ access_token: accessToken })
@@ -107,9 +133,14 @@
     const hint = $("runtimeHint");
     if (install) install.hidden = connected;
     if (hint) {
+      const remote = runtimeBase && !/^http:\/\/(127\.0\.0\.1|localhost|\[?::1\]?)(:|\/|$)/i.test(runtimeBase);
       hint.textContent = connected
-        ? "本机 AI 引擎已自动连接。以后直接打开这个网页即可。"
-        : "未检测到本机 AI 引擎。首次安装一次后，以后只需要打开网页。";
+        ? (remote
+            ? "远程 NVIDIA Runtime 已连接；模型任务会通过私有 HTTPS Runtime 执行。"
+            : "本机 AI 引擎已自动连接。以后直接打开这个网页即可。")
+        : (remote
+            ? "未连接远程 Runtime。确认 Tailscale、HTTPS 地址和 Runtime 令牌后重试。"
+            : "未检测到本机 AI 引擎。首次安装一次后，以后只需要打开网页。");
     }
   }
 
@@ -198,11 +229,11 @@
   async function refreshRuntime() {
     clearRuntimePoll();
     try {
-      const response = await fetch(runtimeUrl("/v1/runtime"), { cache: "no-store" });
+      const response = await runtimeFetch("/v1/runtime", { cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       runtimeState = await response.json();
       try {
-        const backendResponse = await fetch(runtimeUrl("/v1/backends"), { cache: "no-store" });
+        const backendResponse = await runtimeFetch("/v1/backends", { cache: "no-store" });
         backendState = backendResponse.ok ? await backendResponse.json() : null;
       } catch (_) {
         backendState = null;
@@ -248,8 +279,16 @@
   }
 
   function saveRuntimeBase() {
-    runtimeBase = $("runtimeUrl").value.trim() || window.MODEL_CONFIG.runtimeBase;
+    runtimeBase = normalizeRuntimeBase(
+      $("runtimeUrl").value.trim() || window.MODEL_CONFIG.runtimeBase
+    );
+    runtimeToken = String($("runtimeToken").value || "").trim();
     localStorage.setItem("model_runtime_base", runtimeBase);
+    if (runtimeToken) {
+      sessionStorage.setItem("model_runtime_token", runtimeToken);
+    } else {
+      sessionStorage.removeItem("model_runtime_token");
+    }
     $("runtimeUrl").value = runtimeBase;
   }
 
@@ -429,7 +468,7 @@
     showError("");
 
     try {
-      const response = await fetch(runtimeUrl("/v1/chat/completions"), {
+      const response = await runtimeFetch("/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -477,7 +516,7 @@
 
     try {
       await syncRuntimeDriveSession();
-      const response = await fetch(runtimeUrl("/v1/models/inspect"), {
+      const response = await runtimeFetch("/v1/models/inspect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -795,7 +834,7 @@
   async function pollVideoStatus() {
     stopVideoPolling();
     try {
-      const response = await fetch(runtimeUrl("/v1/video/status"), {
+      const response = await runtimeFetch("/v1/video/status", {
         cache: "no-store"
       });
       const state = await response.json().catch(() => ({}));
@@ -933,7 +972,7 @@
     setStatus("正在启动 " + selectedVideoModel.name + " 视频工作流…");
 
     try {
-      const response = await fetch(runtimeUrl("/v1/video/generate"), {
+      const response = await runtimeFetch("/v1/video/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -954,7 +993,7 @@
   async function stopVideo() {
     stopVideoPolling();
     try {
-      const response = await fetch(runtimeUrl("/v1/video/stop"), {
+      const response = await runtimeFetch("/v1/video/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}"
@@ -971,7 +1010,7 @@
 
   async function loadModelCapabilities() {
     try {
-      const response = await fetch(runtimeUrl("/v1/models/capabilities"), { cache: "no-store" });
+      const response = await runtimeFetch("/v1/models/capabilities", { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       modelCapabilities = Object.assign({}, modelCapabilities, Object.fromEntries((data.models || []).map(item => [item.model_id, item])));
@@ -1038,7 +1077,7 @@
     setStatus("正在分析 " + model.name + " 的运行方案…");
 
     try {
-      const response = await fetch(runtimeUrl("/v1/models/plan"), {
+      const response = await runtimeFetch("/v1/models/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1472,7 +1511,7 @@
 
     try {
       await syncRuntimeDriveSession();
-      const response = await fetch(runtimeUrl("/v1/models/start"), {
+      const response = await runtimeFetch("/v1/models/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1521,7 +1560,7 @@
     clearRuntimePoll();
 
     try {
-      const response = await fetch(runtimeUrl("/v1/models/stop"), {
+      const response = await runtimeFetch("/v1/models/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}"
@@ -1540,6 +1579,8 @@
 
   window.ModelApp = {
     runtimeBase: () => runtimeBase || window.MODEL_CONFIG.runtimeBase,
+    runtimeFetch,
+    runtimeHeaders,
     syncRuntimeDriveSession: async () => {
       saveRuntimeBase();
       await ensureAccessToken();
@@ -1560,12 +1601,15 @@
     $("folderId").value =
       localStorage.getItem("model_drive_root_id") || "";
 
-    runtimeBase =
+    runtimeBase = normalizeRuntimeBase(
       localStorage.getItem("model_runtime_base") ||
       window.MODEL_CONFIG.runtimeBase ||
-      "http://127.0.0.1:8765";
+      "http://127.0.0.1:8765"
+    );
+    runtimeToken = sessionStorage.getItem("model_runtime_token") || "";
 
     $("runtimeUrl").value = runtimeBase;
+    $("runtimeToken").value = runtimeToken;
 
     const snapshot = window.DriveModelIndex.loadSnapshot();
     if (snapshot) {
