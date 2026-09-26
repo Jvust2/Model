@@ -149,13 +149,13 @@ Write-Host "Model Runtime Installer" -ForegroundColor Cyan
 Write-Host "This is a one-time install. Google Drive Desktop is not required." -ForegroundColor Green
 Write-Host ""
 
-New-Item -ItemType Directory -Force -Path $baseDir, $appDir, $logsDir, $cacheDir | Out-Null
-
 $config = Read-Config
 if ($config -and $config.cacheRoot -and $CacheRoot -eq "D:\Model") {
     $CacheRoot = [string]$config.cacheRoot
     $cacheDir = $CacheRoot
 }
+
+New-Item -ItemType Directory -Force -Path $baseDir, $appDir, $logsDir, $cacheDir | Out-Null
 $llamaPath = $null
 if ($config -and (Test-LlamaPath ([string]$config.llamaServerPath))) {
     $llamaPath = (Resolve-Path -LiteralPath ([string]$config.llamaServerPath)).Path
