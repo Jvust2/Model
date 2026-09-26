@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# This table mirrors the Drive vault integrity report. It is deliberately
-# conservative: a model is only marked automatic when this repository has a
-# tested launcher for that exact family.
+# Adapter availability is separate from file presence. The selected Drive vault
+# is scanned by the website; this audit snapshot only records what was missing
+# from AI-Model-Vault on 2026-09-26.
 MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
     "qwen_image_2_1_int8": {"availability": "adapter_required", "adapter": "ComfyUI/Diffusers", "reason": "图像工作流适配器尚未接通。"},
     "flux_1_dev": {"availability": "incomplete", "adapter": "ComfyUI/Diffusers", "reason": "Drive 缺少 FLUX.1-dev 主权重。"},
@@ -36,6 +36,21 @@ MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
     "creative_writing_4b_q8": {"availability": "automatic", "adapter": "llama.cpp", "reason": "GGUF 写作模型已接入。"},
 }
 
+_MISSING_FROM_VAULT = {
+    "qwen_image_2_1_int8",
+    "qwen3_vl_8b_q6",
+    "qwen3_14b_q6",
+    "deepseek_r1_distill_qwen14b_q6",
+    "qwen3_coder_30b_a3b_q5",
+    "got_ocr2",
+    "qwen3_embedding_0_6b",
+    "qwen3_reranker_0_6b",
+    "chronos_2",
+    "timesfm_2_0_500m",
+    "webnovel_writer_27b_zh",
+    "creative_writing_4b_q8",
+}
+
 _STATUS_LABELS = {
     "automatic": "可直接使用",
     "adapter_required": "需要适配器",
@@ -56,6 +71,7 @@ def capability_for(model_id: str | None = None, name: str | None = None, categor
         if candidate and candidate in MODEL_CAPABILITIES:
             item = dict(MODEL_CAPABILITIES[candidate])
             item["model_id"] = candidate
+            item["vault_snapshot"] = "not_in_vault" if candidate in _MISSING_FROM_VAULT else "folder_present"
             item["label"] = _STATUS_LABELS.get(item["availability"], item["availability"])
             return item
 
@@ -78,11 +94,12 @@ def capability_for(model_id: str | None = None, name: str | None = None, categor
         "adapter": adapter,
         "reason": reason,
         "label": _STATUS_LABELS[availability],
+        "vault_snapshot": "unknown",
     }
 
 
 def all_capabilities() -> list[dict[str, Any]]:
     return [
-        {**dict(value), "model_id": key, "label": _STATUS_LABELS.get(value["availability"], value["availability"])}
+        {**dict(value), "model_id": key, "label": _STATUS_LABELS.get(value["availability"], value["availability"]), "vault_snapshot": "not_in_vault" if key in _MISSING_FROM_VAULT else "folder_present"}
         for key, value in MODEL_CAPABILITIES.items()
     ]
