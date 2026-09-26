@@ -6,6 +6,7 @@
   let runtimeBase = "";
   let runtimeState = null;
   let backendState = null;
+  let modelCapabilities = {};
   let runtimePollTimer = null;
   let runtimeReconnectTimer = null;
   let chatBusy = false;
@@ -172,6 +173,7 @@
       } catch (_) {
         backendState = null;
       }
+      await loadModelCapabilities();
       if (accessToken) {
         try {
           await syncRuntimeDriveSession();
@@ -727,6 +729,21 @@
     }
   }
 
+  async function loadModelCapabilities() {
+    try {
+      const response = await fetch(runtimeUrl("/v1/models/capabilities"), { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      modelCapabilities = Object.fromEntries((data.models || []).map(item => [item.model_id, item]));
+    } catch (_) {
+      modelCapabilities = {};
+    }
+  }
+
+  function capabilityInfo(model) {
+    return modelCapabilities[String(model.id || "").toLowerCase()] || null;
+  }
+
   function planText(plan) {
     const status = plan.backend_status || {};
     const requirements = Array.isArray(plan.requirements)
@@ -737,6 +754,9 @@
       "工作区：" + (plan.workspace || "generic"),
       "本机检测：" + (status.detected ? "已检测到" : "未检测到"),
       status.detail ? "状态：" + status.detail : "",
+      plan.availability_label ? "模型状态：" + plan.availability_label : "",
+      plan.adapter ? "适配器：" + plan.adapter : "",
+      plan.availability_reason ? "说明：" + plan.availability_reason : "",
       plan.local_error ? "本机路径：" + plan.local_error : "",
       requirements ? "需要：" + requirements : "",
       plan.note || ""
@@ -842,10 +862,12 @@
       meta.className = "model-meta";
       const info = backendInfo(model);
       const videoAdapter = videoAdapterFor(model);
+      const capability = capabilityInfo(model);
       const pieces = [
         model.category || "unknown",
         model.workspace || "generic",
         model.qualityTier || "",
+        capability ? capability.label : "",
         videoAdapter ? "网页视频适配已支持" : "",
         videoAdapter
           ? "首次运行自动准备"

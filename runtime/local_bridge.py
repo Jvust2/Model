@@ -19,10 +19,12 @@ from urllib.request import Request, urlopen
 try:
     from .backends import backend_status, model_plan
     from .drive_cache import DriveCache, DriveFileSpec
+    from .model_capabilities import all_capabilities
     from .video_runtime import VideoRuntime, adapter_for
 except ImportError:
     from backends import backend_status, model_plan
     from drive_cache import DriveCache, DriveFileSpec
+    from model_capabilities import all_capabilities
     from video_runtime import VideoRuntime, adapter_for
 
 HOST = "127.0.0.1"
@@ -685,6 +687,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, payload)
             return
 
+        if path == "/v1/models/capabilities":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            self._json(200, {"ok": True, "models": all_capabilities()})
+            return
+
         if path == "/v1/models/cache":
             if not self._origin_allowed():
                 self._json(403, {"error": "Origin not allowed."})
@@ -739,7 +748,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/models/plan":
                 backend = str(payload.get("backend") or "")
                 category = str(payload.get("category") or "unknown")
-                plan = model_plan(backend, category)
+                plan = model_plan(
+                    backend,
+                    category,
+                    model_id=str(payload.get("model_id") or ""),
+                    name=str(payload.get("name") or ""),
+                )
                 status = backend_status(LLAMA_SERVER_PATH)["backends"].get(
                     backend,
                     {

@@ -5,6 +5,11 @@ import os
 import shutil
 from pathlib import Path
 
+try:
+    from .model_capabilities import capability_for
+except ImportError:
+    from model_capabilities import capability_for
+
 BACKEND_LABELS = {
     "llama.cpp": "llama.cpp",
     "ComfyUI": "ComfyUI",
@@ -84,8 +89,8 @@ def backend_status(llama_server_path: str | None = None) -> dict:
     return {"backends": result, "python_modules": modules}
 
 
-def model_plan(backend: str, category: str | None = None) -> dict:
-    name = str(backend or "").strip()
+def model_plan(backend: str, category: str | None = None, model_id: str | None = None, name: str | None = None) -> dict:
+    backend_name = str(backend or "").strip()
     category = str(category or "unknown").strip() or "unknown"
 
     requirements = {
@@ -96,7 +101,7 @@ def model_plan(backend: str, category: str | None = None) -> dict:
         "PyTorch": ["Python", "torch", "model architecture/loader code"],
         "ONNX Runtime": ["Python", "onnxruntime", "task-specific preprocessing"],
         "TFLite": ["TensorFlow/TFLite runtime", "task-specific preprocessing"],
-    }.get(name, ["model-specific runtime adapter"])
+    }.get(backend_name, ["model-specific runtime adapter"])
 
     workspace = {
         "llm": "chat",
@@ -114,16 +119,26 @@ def model_plan(backend: str, category: str | None = None) -> dict:
         "timeseries": "timeseries",
     }.get(category, "generic")
 
-    automatic = name == "llama.cpp"
+    capability = capability_for(model_id=model_id, name=name, category=category)
+    if backend_name == "llama.cpp" and not str(model_id or "").strip() and not str(name or "").strip():
+        capability = {
+            "availability": "automatic",
+            "label": "可直接使用",
+            "adapter": "llama.cpp",
+            "reason": "GGUF 聊天后端已接入。",
+        }
+    automatic = capability["availability"] == "automatic"
     return {
-        "backend": name or "unknown",
+        "backend": backend_name or "unknown",
         "category": category,
         "workspace": workspace,
         "automatic_launch": automatic,
+        "availability": capability["availability"],
+        "availability_label": capability["label"],
+        "adapter": capability["adapter"],
+        "availability_reason": capability["reason"],
         "requirements": requirements,
         "note": (
-            "Direct launch is implemented."
-            if automatic
-            else "Backend is identified, but this model family still needs a model-specific adapter/workflow before automatic launch."
+            capability["reason"]
         ),
     }
