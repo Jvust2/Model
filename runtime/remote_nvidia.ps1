@@ -111,7 +111,7 @@ $statusRaw = & $tailscale status --json
 if ($LASTEXITCODE -ne 0 -or -not $statusRaw) {
     throw "Tailscale 未运行或尚未登录。"
 }
-$status = $statusRaw | ConvertFrom-Json
+$status = ($statusRaw -join "`n") | ConvertFrom-Json
 $dnsName = [string]$status.Self.DNSName
 $dnsName = $dnsName.Trim().TrimEnd(".")
 if (-not $dnsName) {
