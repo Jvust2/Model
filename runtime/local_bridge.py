@@ -92,6 +92,7 @@ MODEL_CHAT_TIMEOUT = positive_float_env("MODEL_CHAT_TIMEOUT", 600.0)
 
 DEFAULT_ORIGINS = ",".join(
     [
+        "https://jvust.github.io",
         "https://jvust2.github.io",
         "http://127.0.0.1:8000",
         "http://localhost:8000",
