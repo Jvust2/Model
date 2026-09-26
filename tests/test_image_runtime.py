@@ -3,7 +3,11 @@ import unittest
 from runtime.image_runtime import (
     ADAPTERS,
     PONY_CHECKPOINT,
+    QWEN_TEXT_ENCODER,
+    QWEN_UNET,
+    QWEN_VAE,
     adapter_for,
+    artifact_specs,
     build_prompt,
     checkpoint_spec,
 )
@@ -18,6 +22,90 @@ class ImageAdapterTests(unittest.TestCase):
         )
         self.assertIsNotNone(matched)
         self.assertEqual(matched[0], "pony_diffusion_v6_xl")
+
+    def test_matches_qwen_image_linked_package(self):
+        matched = adapter_for(
+            "Qwen-Image-2.1 INT8",
+            "qwen_image_2_1_int8",
+            "image_base/Qwen-Image-2.1-GGUF",
+        )
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched[0], "qwen_image_2_1_int8")
+
+    def test_qwen_requires_all_three_drive_artifacts(self):
+        adapter = ADAPTERS["qwen_image_2_1_int8"]
+        specs = artifact_specs(
+            {
+                "files": [
+                    {
+                        "id": "testQwenUnet123456789",
+                        "name": QWEN_UNET,
+                        "size": 4_604_557_984,
+                    },
+                    {
+                        "id": "testQwenClip123456789",
+                        "name": QWEN_TEXT_ENCODER,
+                        "size": 9_350_798_360,
+                    },
+                    {
+                        "id": "testQwenVae1234567890",
+                        "name": QWEN_VAE,
+                        "size": 675_509_688,
+                    },
+                ]
+            },
+            adapter,
+        )
+        self.assertEqual(set(specs), {"unet", "clip", "vae"})
+        self.assertEqual(specs["unet"].name, QWEN_UNET)
+
+    def test_qwen_rejects_missing_text_encoder(self):
+        with self.assertRaises(FileNotFoundError):
+            artifact_specs(
+                {
+                    "files": [
+                        {
+                            "id": "testQwenUnet123456789",
+                            "name": QWEN_UNET,
+                            "size": 4_604_557_984,
+                        },
+                        {
+                            "id": "testQwenVae1234567890",
+                            "name": QWEN_VAE,
+                            "size": 675_509_688,
+                        },
+                    ]
+                },
+                ADAPTERS["qwen_image_2_1_int8"],
+            )
+
+    def test_builds_qwen_image_gguf_prompt(self):
+        prompt = build_prompt(
+            {
+                "unet": QWEN_UNET,
+                "clip": QWEN_TEXT_ENCODER,
+                "vae": QWEN_VAE,
+            },
+            {
+                "prompt": "cinematic mountain lake",
+                "negative_prompt": "blurry",
+                "width": 768,
+                "height": 768,
+                "steps": 20,
+                "cfg": 1.0,
+                "seed": 42,
+            },
+            ADAPTERS["qwen_image_2_1_int8"],
+            "qwenjob",
+        )
+        self.assertEqual(prompt["1"]["class_type"], "UnetLoaderGGUF")
+        self.assertEqual(prompt["1"]["inputs"]["unet_name"], QWEN_UNET)
+        self.assertEqual(prompt["2"]["inputs"]["type"], "qwen_image")
+        self.assertEqual(prompt["4"]["class_type"], "TextEncodeQwenImage21")
+        self.assertEqual(prompt["4"]["inputs"]["resolution"], 1024)
+        self.assertEqual(prompt["6"]["inputs"]["sampler_name"], "euler")
+        self.assertEqual(prompt["6"]["inputs"]["scheduler"], "simple")
+        self.assertEqual(prompt["8"]["class_type"], "SaveImage")
 
     def test_rejects_unadapted_flux(self):
         self.assertIsNone(
