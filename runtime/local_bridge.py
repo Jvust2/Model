@@ -800,8 +800,8 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/v1/models/cache/clear":
                 snapshot = STATE.snapshot()
-                if snapshot.get("source_drive_file_id") and snapshot.get("running"):
-                    self._json(409, {"error": "Stop the active model before clearing the cache."})
+                if snapshot.get("source_drive_file_id") and snapshot.get("phase") != "idle":
+                    self._json(409, {"error": "Stop the active model or download before clearing the cache."})
                     return
                 self._json(200, {"ok": True, "result": DRIVE_CACHE.delete_all()})
                 return
