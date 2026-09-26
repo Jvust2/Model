@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-09-25
+Updated: 2026-09-26
 
 ## Mission
 
@@ -8,7 +8,7 @@ Build a Drive-first AI model website where Google Drive remains the model vault,
 
 ## Current state
 
-Status: **v0.9 web video runtime in validation**
+Status: **v0.10 model enablement / first web image adapter in validation**
 
 Verified on the live site before this branch:
 
@@ -30,7 +30,7 @@ Implemented on this branch:
 - Added `runtime/Uninstall.cmd`.
 - Removed the Google Drive desktop mount requirement from the Windows launcher.
 - First-run setup now asks only for `llama-server.exe`.
-- Runtime cache defaults to `%LOCALAPPDATA%\JvustModel\cache`.
+- Runtime cache defaults to `D:\Model` on Windows.
 - Browser syncs the short-lived Google Drive access token to localhost Runtime memory only.
 - Runtime accepts Drive file metadata by file ID.
 - GGUF files can be downloaded directly from Google Drive API to local cache.
@@ -47,6 +47,11 @@ Implemented on this branch:
 - First video run can install pinned ComfyUI Windows Portable automatically.
 - Video workflow dependencies are downloaded lazily and cached locally.
 - Workflow graph is pruned to the selected output, so Hunyuan's optional 1080p SR branch is not downloaded for the base 720p output.
+- Pony Diffusion V6 XL now has a dedicated web image adapter using the verified Drive checkpoint and a fixed SDXL ComfyUI graph.
+- Runtime exposes `/v1/image/generate`, `/v1/image/status`, `/v1/image/stop` and image-file return.
+- Image/video direct-use actions are gated by managed-ComfyUI hardware status before large downloads begin.
+- The current managed ComfyUI package remains NVIDIA Windows/CUDA based; AMD-only machines are reported as hardware unsupported.
+- FLUX.2 Klein 4B FP8 remains adapter-required until its companion-component/runtime path is verified; it is not promoted merely because a single safetensors file exists.
 - Other ComfyUI/Diffusers model families remain future adapters.
 
 ## Architecture invariants
@@ -91,7 +96,7 @@ Implemented on this branch:
 | Backend | Detection | Automatic launch |
 | --- | --- | --- |
 | llama.cpp | yes | yes, via Drive API cache |
-| ComfyUI | yes | Wan2.2 TI2V 5B + HunyuanVideo 1.5 T2V |
+| ComfyUI | managed/runtime detection + hardware gate | Pony Diffusion V6 XL image + Wan2.2 TI2V 5B + HunyuanVideo 1.5 T2V on supported NVIDIA Windows hardware |
 | Diffusers | yes | not yet |
 | Transformers | yes | not yet |
 | PyTorch | yes | not yet |
@@ -100,11 +105,10 @@ Implemented on this branch:
 
 ## Next technical steps
 
-1. Validate a real Drive GGUF download + cache + llama.cpp round trip on Windows.
-2. Add cache management UI: size, clear selected model, clear all.
-3. Add cancellation for active Drive downloads.
-4. Validate full real-video generation on the user's Windows hardware.
-5. Extend ComfyUI adapters to Wan2.2 T2V/I2V/Animate, Qwen-Image and FLUX.
-6. Add Transformers/PyTorch package adapters.
-6. Add workspace-specific image/video/OCR/embedding/time-series UIs.
-7. Evaluate sparse-cache / virtual filesystem access only after the full-file cache path is stable.
+1. Validate Pony Diffusion V6 XL end-to-end on a supported NVIDIA Windows Runtime and record VRAM/RAM/disk observations.
+2. Verify FLUX.2 Klein 4B FP8 companion components and then add its fixed image adapter without redownloading an unrelated full repository.
+3. Add at least one small real GGUF to Drive as the default chat model and validate the full Drive cache → llama.cpp round trip.
+4. Add GOT-OCR, Qwen Embedding, Qwen Reranker and Chronos/TimesFM task adapters/workspaces as their real weights become available.
+5. Add remote NVIDIA Runtime routing for AMD/no-NVIDIA clients while preserving the same web task API.
+6. Extend video adapters to Wan2.2 T2V/I2V/Animate and additional verified model families.
+7. Keep cache management/cancellation coverage and evaluate sparse-cache/virtual filesystem access only after full-file paths are stable.
