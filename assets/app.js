@@ -972,7 +972,12 @@
       plan.addEventListener("click", () => planModel(model, plan));
       actions.appendChild(plan);
 
-      if (model.directLaunch && (!capability || capability.label === "可直接使用")) {
+      if (
+        model.directLaunch &&
+        info &&
+        info.detected &&
+        (!capability || capability.label === "可直接使用")
+      ) {
         const inspect = document.createElement("button");
         inspect.type = "button";
         inspect.textContent = "本机检查";
