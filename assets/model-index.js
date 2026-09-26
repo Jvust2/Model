@@ -399,6 +399,62 @@
     });
   }
 
+  function mountLinkedTree(rootNode, linkedTree, categoryRoot) {
+    if (!rootNode || !linkedTree || !linkedTree.file) return false;
+    const category = String(categoryRoot || "").trim();
+    if (!category) return false;
+
+    const linkedRootName = String(linkedTree.file.name || "").trim();
+    if (!linkedRootName) return false;
+    const mountPath = category + "/" + linkedRootName;
+
+    function cloneWithPrefix(node, isRoot = false) {
+      const suffix = isRoot
+        ? ""
+        : String(node.relativePath || "").replace(/^\/+/, "");
+      return {
+        file: copyFile(node.file),
+        relativePath: suffix ? mountPath + "/" + suffix : mountPath,
+        scanned: node.scanned === true,
+        children: (node.children || [])
+          .map(child => cloneWithPrefix(child, false))
+          .filter(Boolean)
+      };
+    }
+
+    let categoryNode = (rootNode.children || []).find(
+      child =>
+        child &&
+        child.file &&
+        child.file.mimeType === "application/vnd.google-apps.folder" &&
+        child.relativePath === category
+    );
+
+    if (!categoryNode) {
+      categoryNode = {
+        file: {
+          id: "linked-category-" + category,
+          name: category,
+          mimeType: "application/vnd.google-apps.folder"
+        },
+        relativePath: category,
+        scanned: true,
+        children: []
+      };
+      rootNode.children = rootNode.children || [];
+      rootNode.children.push(categoryNode);
+    }
+
+    const existing = (categoryNode.children || []).find(
+      child => child && child.relativePath === mountPath
+    );
+    if (existing) return false;
+
+    categoryNode.children = categoryNode.children || [];
+    categoryNode.children.push(cloneWithPrefix(linkedTree, true));
+    return true;
+  }
+
   function countFolders(rootNode) {
     let count = 0;
     function walk(node) {
@@ -421,6 +477,7 @@
     isModelFile,
     loadSnapshot,
     matchRegistry,
+    mountLinkedTree,
     saveSnapshot,
     workspaceForCategory
   };
