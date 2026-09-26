@@ -793,6 +793,10 @@
         plan.availability_label = capability.label;
         plan.availability_reason = capability.reason;
       }
+      if (model.vaultMissing) {
+        plan.availability_label = "主库未发现文件";
+        plan.availability_reason = "该模型在登记表中，但所选 AI-Model-Vault 内没有可扫描的权重文件。";
+      }
       $("runtimeLog").textContent = planText(plan);
       setStatus(model.name + " · " + (plan.availability_label || model.backend));
     } catch (error) {
@@ -866,7 +870,7 @@
         model.category || "unknown",
         model.workspace || "generic",
         model.qualityTier || "",
-        capability ? capability.label : "",
+        model.vaultMissing ? "主库未发现文件" : capability ? capability.label : "",
         videoAdapter ? "网页视频适配已支持" : "",
         videoAdapter
           ? "首次运行自动准备"
@@ -878,8 +882,10 @@
 
       const path = document.createElement("div");
       path.className = "model-path";
-      path.textContent = (model.packagePath || model.relativePath) +
-        (capability && capability.label !== "可直接使用" ? " · " + capability.reason : "");
+      path.textContent = model.vaultMissing
+        ? "登记表中存在；所选 AI-Model-Vault 内未发现模型文件。"
+        : (model.packagePath || model.relativePath) +
+          (capability && capability.label !== "可直接使用" ? " · " + capability.reason : "");
 
       const actions = document.createElement("div");
       actions.className = "model-actions";
@@ -937,7 +943,7 @@
         useVideo.className = "primary";
         useVideo.addEventListener("click", () => openVideoWorkspace(model));
         actions.appendChild(useVideo);
-      } else if (!capability || !["Drive 文件不完整", "依赖模型不完整"].includes(capability.label)) {
+      } else if (!model.vaultMissing && (!capability || !["Drive 文件不完整", "依赖模型不完整"].includes(capability.label))) {
         const prepare = document.createElement("button");
         prepare.type = "button";
         prepare.dataset.icon = "play";
