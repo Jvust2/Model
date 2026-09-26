@@ -137,6 +137,16 @@
     ).replace(/\/$/, "");
   }
 
+  async function runtimeFetch(path, options = {}) {
+    if (
+      window.ModelApp &&
+      typeof window.ModelApp.runtimeFetch === "function"
+    ) {
+      return window.ModelApp.runtimeFetch(path, options);
+    }
+    return fetch(runtimeBase() + path, options);
+  }
+
   function imageDefaults(model) {
     const hay = [
       model && model.id,
@@ -210,7 +220,7 @@
     const run = form.querySelector('button[type="submit"]');
     const stop = form.querySelector("[data-stop-image]");
     try {
-      const response = await fetch(runtimeBase() + "/v1/image/status", { cache: "no-store" });
+      const response = await runtimeFetch("/v1/image/status", { cache: "no-store" });
       const state = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(state.error || "无法读取图像任务状态。");
       let text = imagePhaseText(state);
@@ -291,7 +301,7 @@
       };
       const seed = String(values.get("seed") || "").trim();
       if (seed) payload.seed = Number(seed);
-      const response = await fetch(runtimeBase() + "/v1/image/generate", {
+      const response = await runtimeFetch("/v1/image/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -311,7 +321,7 @@
     const run = form.querySelector('button[type="submit"]');
     const stop = form.querySelector("[data-stop-image]");
     try {
-      const response = await fetch(runtimeBase() + "/v1/image/stop", {
+      const response = await runtimeFetch("/v1/image/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}"
