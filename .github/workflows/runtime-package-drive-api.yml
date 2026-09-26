@@ -70,6 +70,17 @@ jobs:
             if (($video.supported_adapters | Measure-Object).Count -lt 2) {
               throw "Expected Wan and Hunyuan video adapters in packaged Runtime."
             }
+            $image = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/image/status" -TimeoutSec 3
+            if (($image.supported_adapters | Measure-Object).Count -lt 1) {
+              throw "Expected Pony image adapter in packaged Runtime."
+            }
+            $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/runtime" -TimeoutSec 3
+            if ([int]$runtime.runtime_version -lt 10) {
+              throw "Expected Runtime v0.10 image API."
+            }
+            if ($null -eq $runtime.hardware.managed_comfy_supported) {
+              throw "Runtime hardware gate is missing."
+            }
             $capabilities = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/models/capabilities" -TimeoutSec 3
             if (($capabilities.models | Measure-Object).Count -ne 27) {
               throw "Packaged Runtime is missing the 27-model capability registry."
