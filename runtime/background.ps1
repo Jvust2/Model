@@ -12,7 +12,7 @@ $cacheDir = "D:\Model"
 $stdoutPath = Join-Path $logsDir "runtime.stdout.log"
 $stderrPath = Join-Path $logsDir "runtime.stderr.log"
 $trayPidPath = Join-Path $baseDir "tray.pid"
-$siteUrl = "https://jvust2.github.io/Model/"
+$siteUrl = "https://jvust.github.io/Model/"
 $bridgeUrl = "http://127.0.0.1:8765"
 
 function Read-Config {
@@ -45,6 +45,11 @@ function Start-Bridge {
     $env:MODEL_LOAD_MODE = [string]$config.loadMode
     $env:MODEL_READY_WARN_SECONDS = [string]$config.readyWarnSeconds
     $env:MODEL_CACHE_ROOT = $cacheDir
+    if ($config.remoteToken) {
+        $env:MODEL_REMOTE_TOKEN = [string]$config.remoteToken
+    } else {
+        Remove-Item Env:MODEL_REMOTE_TOKEN -ErrorAction SilentlyContinue
+    }
 
     return Start-Process -FilePath $runtimeExe -WorkingDirectory $appDir -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
 }
@@ -119,7 +124,11 @@ $startBridgeAction = {
 
     $script:lastStart = [DateTime]::Now
     try {
-        $script:bridgeProcess = Start-Bridge $config
+        $script:config = Read-Config
+        if ($script:config.cacheRoot) {
+            $script:cacheDir = [string]$script:config.cacheRoot
+        }
+        $script:bridgeProcess = Start-Bridge $script:config
         $statusItem.Text = "Runtime: starting"
     } catch {
         $statusItem.Text = "Runtime: failed"
