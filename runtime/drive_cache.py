@@ -11,6 +11,11 @@ from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+try:
+    from .hardware import disk_status
+except ImportError:
+    from hardware import disk_status
+
 
 _DRIVE_FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,256}$")
 _CHUNK_BYTES = 8 * 1024 * 1024
@@ -209,6 +214,24 @@ class DriveCache:
                 deleted += int(result["deleted_bytes"] or 0)
         return {"removed": removed, "deleted_bytes": deleted}
 
+    def download_preflight(self, spec: DriveFileSpec, reserve_bytes: int = 2 * 1024**3) -> dict:
+        _, partial, _ = self._paths(spec)
+        partial_bytes = partial.stat().st_size if partial.exists() else 0
+        expected = int(spec.size or 0)
+        remaining = max(0, expected - partial_bytes) if expected else None
+        disk = disk_status(self.root)
+        required = (remaining + int(reserve_bytes)) if remaining is not None else int(reserve_bytes)
+        ok = int(disk["free_bytes"]) >= required
+        return {
+            "ok": ok,
+            "disk": disk,
+            "expected_bytes": spec.size,
+            "partial_bytes": partial_bytes,
+            "remaining_bytes": remaining,
+            "reserve_bytes": int(reserve_bytes),
+            "required_bytes": required,
+        }
+
     def download(
         self,
         spec: DriveFileSpec,
@@ -233,6 +256,16 @@ class DriveCache:
             if spec.size and offset > spec.size:
                 partial.unlink(missing_ok=True)
                 offset = 0
+
+            preflight = self.download_preflight(spec)
+            if not preflight["ok"]:
+                disk = preflight["disk"]
+                required = int(preflight["required_bytes"])
+                raise RuntimeError(
+                    "本机缓存空间不足："
+                    f"下载和安全余量共需约 {required / (1024**3):.1f} GB，"
+                    f"当前可用约 {disk['free_gb']:.1f} GB。"
+                )
 
             url = (
                 "https://www.googleapis.com/drive/v3/files/"

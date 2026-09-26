@@ -12,10 +12,12 @@ from typing import Callable
 
 try:
     from .drive_cache import DriveCache, DriveFileSpec, default_cache_root
-    from .video_runtime import COMFY_BASE, json_request, nvidia_available
+    from .hardware import managed_comfy_preflight
+    from .video_runtime import COMFY_BASE, json_request
 except ImportError:
     from drive_cache import DriveCache, DriveFileSpec, default_cache_root
-    from video_runtime import COMFY_BASE, json_request, nvidia_available
+    from hardware import managed_comfy_preflight
+    from video_runtime import COMFY_BASE, json_request
 
 
 IMAGE_TIMEOUT_SECONDS = int(os.environ.get("MODEL_IMAGE_TIMEOUT_SECONDS", "3600"))
@@ -38,6 +40,8 @@ ADAPTERS = {
         ),
         "checkpoint": PONY_CHECKPOINT,
         "min_bytes": PONY_MIN_BYTES,
+        "min_vram_mb": 8 * 1024,
+        "min_disk_free_gb": 10.0,
         "defaults": {
             "width": 1024,
             "height": 1024,
@@ -59,23 +63,13 @@ def adapter_for(name: str, model_id: str = "", package_path: str = "") -> tuple[
     return None
 
 
-def managed_comfy_hardware() -> dict:
-    if os.name != "nt":
-        return {
-            "supported": True,
-            "backend": "managed ComfyUI",
-            "detail": "non-Windows source/test environment",
-        }
-    supported = nvidia_available()
-    return {
-        "supported": supported,
-        "backend": "managed ComfyUI Windows Portable",
-        "detail": (
-            "NVIDIA GPU/driver detected"
-            if supported
-            else "需要 NVIDIA GPU/驱动；当前 managed ComfyUI 为 CUDA Windows 版本"
-        ),
-    }
+def managed_comfy_hardware(adapter: dict | None = None) -> dict:
+    adapter = adapter or {}
+    return managed_comfy_preflight(
+        IMAGE_ROOT,
+        min_vram_mb=int(adapter.get("min_vram_mb") or 0),
+        min_disk_free_gb=float(adapter.get("min_disk_free_gb") or 10.0),
+    )
 
 
 def _normalize_file_payload(item: dict) -> dict:
@@ -314,12 +308,9 @@ class ImageRuntime:
             raise ValueError("这个图像模型还没有网页自动运行适配器。")
         adapter_key, adapter = matched
 
-        hardware = managed_comfy_hardware()
+        hardware = managed_comfy_hardware(adapter)
         if not hardware["supported"]:
-            raise RuntimeError(
-                "硬件不支持：当前图像自动运行使用 managed ComfyUI CUDA 版本，"
-                "需要 NVIDIA GPU/驱动。"
-            )
+            raise RuntimeError("硬件不支持：" + str(hardware["detail"]))
 
         if self.comfy.snapshot().get("running"):
             raise RuntimeError("已有视频任务正在使用 ComfyUI，请先等待或停止视频任务。")

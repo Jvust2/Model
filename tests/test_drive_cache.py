@@ -90,6 +90,19 @@ class DriveCacheTests(unittest.TestCase):
             self.assertTrue(removed["removed"])
             self.assertEqual(cache.list_entries(), [])
 
+    def test_download_preflight_reports_cache_space(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache = DriveCache(Path(temp))
+            spec = DriveFileSpec(
+                file_id="1AbCdEfGhIjKlMnOp",
+                name="preflight.gguf",
+                size=1024,
+            )
+            status = cache.download_preflight(spec, reserve_bytes=0)
+            self.assertTrue(status["ok"])
+            self.assertGreater(status["disk"]["free_bytes"], 0)
+            self.assertEqual(status["remaining_bytes"], 1024)
+
     def test_payload_uses_file_name_for_extension(self):
         spec = DriveFileSpec.from_payload(
             {

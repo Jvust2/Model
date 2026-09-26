@@ -78,11 +78,24 @@ jobs:
               throw "Expected Pony image adapter in packaged Runtime."
             }
             $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/runtime" -TimeoutSec 3
-            if ([int]$runtime.runtime_version -lt 10) {
-              throw "Expected Runtime v0.10 image API."
+            if ([int]$runtime.runtime_version -lt 11) {
+              throw "Expected Runtime v0.11 hardware preflight API."
             }
             if ($null -eq $runtime.hardware.managed_comfy_supported) {
               throw "Runtime hardware gate is missing."
+            }
+            if ($null -eq $runtime.hardware.memory.available_bytes) {
+              throw "Runtime memory preflight is missing."
+            }
+            if ($null -eq $runtime.hardware.cache_disk.free_bytes) {
+              throw "Runtime cache disk preflight is missing."
+            }
+            $hardware = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/hardware" -TimeoutSec 3
+            if (-not $hardware.ok) {
+              throw "Runtime hardware endpoint failed."
+            }
+            if ($null -eq $hardware.hardware.gpu.nvidia_smi) {
+              throw "Runtime NVIDIA probe result is missing."
             }
             $capabilities = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/models/capabilities" -TimeoutSec 3
             if (($capabilities.models | Measure-Object).Count -ne 27) {

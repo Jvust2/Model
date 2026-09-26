@@ -136,6 +136,25 @@
 
   function runtimeLogText(state) {
     const lines = [];
+    const hardware = state && state.hardware;
+    if (hardware) {
+      const gpu = hardware.gpu || {};
+      const memory = hardware.memory || {};
+      const disk = hardware.cache_disk || {};
+      lines.push(
+        "[hardware] " + (
+          gpu.detected
+            ? (gpu.detail || "NVIDIA GPU detected")
+            : "未检测到 NVIDIA GPU · 图像/视频需要远程 NVIDIA Runtime"
+        )
+      );
+      if (memory.available_gb != null) {
+        lines.push("[memory] " + Number(memory.available_gb).toFixed(1) + " GB available");
+      }
+      if (disk.free_gb != null) {
+        lines.push("[cache] " + Number(disk.free_gb).toFixed(1) + " GB free");
+      }
+    }
     if (state && state.last_error) lines.push("[bridge] " + state.last_error);
     if (state && state.logs && state.logs.length) {
       lines.push(...state.logs.slice(-12));
@@ -455,7 +474,9 @@
         frames: 49,
         fps: 24,
         steps: 20,
-        cfg: 5
+        cfg: 5,
+        minVramMb: 12 * 1024,
+        minDiskFreeGb: 10
       };
     }
 
@@ -471,7 +492,9 @@
         fps: 24,
         steps: 20,
         cfg: 6,
-        lockResolution: true
+        lockResolution: true,
+        minVramMb: 16 * 1024,
+        minDiskFreeGb: 10
       };
     }
 
@@ -496,7 +519,9 @@
       return {
         id: "pony_diffusion_v6_xl",
         checkpoint: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
-        minBytes: 6000000000
+        minBytes: 6000000000,
+        minVramMb: 8 * 1024,
+        minDiskFreeGb: 10
       };
     }
 
@@ -526,15 +551,45 @@
     return { ready: true, detail: "固定 checkpoint 已确认" };
   }
 
-  function managedComfyHardware() {
+  function managedComfyHardware(adapter = null) {
     const hardware = runtimeState && runtimeState.hardware;
     if (!hardware) {
       return { known: false, supported: false, detail: "等待新版 Runtime 检查本机硬件" };
     }
+
+    let supported = !!hardware.managed_comfy_supported;
+    const details = [];
+    const gpu = hardware.gpu || {};
+    const disk = hardware.cache_disk || {};
+    const minVramMb = Number(adapter && adapter.minVramMb || 0);
+    const minDiskFreeGb = Number(adapter && adapter.minDiskFreeGb || 0);
+    const vramMb = Number(gpu.vram_total_mb || 0);
+    const diskFreeGb = Number(disk.free_gb || 0);
+
+    if (minVramMb && vramMb < minVramMb) {
+      supported = false;
+      details.push(
+        "显存不足：需要至少 " + (minVramMb / 1024).toFixed(1) +
+        " GB，当前约 " + (vramMb / 1024).toFixed(1) + " GB"
+      );
+    }
+    if (minDiskFreeGb && diskFreeGb < minDiskFreeGb) {
+      supported = false;
+      details.push(
+        "缓存磁盘不足：至少保留 " + minDiskFreeGb.toFixed(1) +
+        " GB，当前约 " + diskFreeGb.toFixed(1) + " GB"
+      );
+    }
+    if (!supported && !gpu.detected) {
+      details.unshift("需要远程 NVIDIA Runtime");
+    }
+    if (!details.length) {
+      details.push(String(hardware.managed_comfy_detail || ""));
+    }
     return {
       known: true,
-      supported: !!hardware.managed_comfy_supported,
-      detail: String(hardware.managed_comfy_detail || "")
+      supported,
+      detail: details.filter(Boolean).join("；")
     };
   }
 
@@ -826,6 +881,22 @@
       plan.hardware_supported === false ? "硬件：不支持" : "",
       plan.hardware_supported === true ? "硬件：已通过" : "",
       plan.hardware_detail ? "硬件说明：" + plan.hardware_detail : "",
+      plan.gguf_preflight && plan.gguf_preflight.disk
+        ? "GGUF 磁盘：" + Number(plan.gguf_preflight.disk.free_gb || 0).toFixed(1) + " GB 可用"
+        : "",
+      plan.gguf_preflight && plan.gguf_preflight.memory
+        ? "GGUF 内存：" + (
+            plan.gguf_preflight.memory.available_gb == null
+              ? "未知"
+              : Number(plan.gguf_preflight.memory.available_gb).toFixed(1) + " GB 可用"
+          )
+        : "",
+      plan.gguf_preflight
+        ? "GGUF 线程：" + plan.gguf_preflight.threads
+        : "",
+      plan.gguf_preflight && Array.isArray(plan.gguf_preflight.warnings)
+        ? plan.gguf_preflight.warnings.join("；")
+        : "",
       plan.availability_label ? "模型状态：" + plan.availability_label : "",
       plan.adapter ? "适配器：" + plan.adapter : "",
       plan.availability_reason ? "说明：" + plan.availability_reason : "",
@@ -853,6 +924,11 @@
           name: model.name,
           model_id: model.id,
           artifact_present: !model.vaultMissing,
+          drive_file_id: model.representativeFile && model.representativeFile.id,
+          file_name: model.representativeFile && model.representativeFile.name,
+          size: Number(model.representativeFile && model.representativeFile.size || 0) || null,
+          md5_checksum: model.representativeFile && model.representativeFile.md5Checksum || "",
+          resource_key: model.representativeFile && model.representativeFile.resourceKey || "",
           files: (Array.isArray(model.files) ? model.files : []).map(file => ({
             drive_file_id: file.id,
             file_name: file.name,
@@ -949,7 +1025,7 @@
         ? imageArtifactState(model, imageAdapter)
         : null;
       const managedAdapter = videoAdapter || imageAdapter;
-      const hardware = managedComfyHardware();
+      const hardware = managedComfyHardware(managedAdapter);
       const capability = capabilityInfo(model);
       const pieces = [
         model.category || "unknown",

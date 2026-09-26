@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 try:
     from .backends import backend_status, model_plan
     from .drive_cache import DriveCache, DriveFileSpec
+    from .hardware import disk_status, gguf_preflight, nvidia_status, system_memory_status
     from .model_capabilities import all_capabilities
     from .image_runtime import (
         ImageRuntime,
@@ -29,11 +30,13 @@ try:
     from .video_runtime import (
         VideoRuntime,
         adapter_for as video_adapter_for,
+        adapter_hardware as video_adapter_hardware,
         nvidia_available,
     )
 except ImportError:
     from backends import backend_status, model_plan
     from drive_cache import DriveCache, DriveFileSpec
+    from hardware import disk_status, gguf_preflight, nvidia_status, system_memory_status
     from model_capabilities import all_capabilities
     from image_runtime import (
         ImageRuntime,
@@ -44,6 +47,7 @@ except ImportError:
     from video_runtime import (
         VideoRuntime,
         adapter_for as video_adapter_for,
+        adapter_hardware as video_adapter_hardware,
         nvidia_available,
     )
 
@@ -178,6 +182,19 @@ class DriveSession:
 
 DRIVE_SESSION = DriveSession()
 DRIVE_CACHE = DriveCache()
+
+
+def runtime_hardware_snapshot() -> dict:
+    managed = managed_comfy_hardware()
+    gpu = nvidia_status()
+    return {
+        "nvidia": bool(gpu.get("detected")),
+        "gpu": gpu,
+        "memory": system_memory_status(),
+        "cache_disk": disk_status(DRIVE_CACHE.root),
+        "managed_comfy_supported": bool(managed.get("supported")),
+        "managed_comfy_detail": str(managed.get("detail") or ""),
+    }
 
 
 def build_chat_payload(payload: dict, model_name: str | None) -> dict:
@@ -683,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 10})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 11})
             return
 
         if path == "/v1/backends":
@@ -691,6 +708,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(403, {"error": "Origin not allowed."})
                 return
             self._json(200, backend_status(LLAMA_SERVER_PATH))
+            return
+
+        if path == "/v1/hardware":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            self._json(200, {"ok": True, "hardware": runtime_hardware_snapshot()})
             return
 
         if path == "/v1/runtime":
@@ -708,12 +732,8 @@ class Handler(BaseHTTPRequestHandler):
                     "ready_warn_seconds": MODEL_READY_WARN_SECONDS,
                     "video": VIDEO.snapshot(),
                     "image": IMAGE.snapshot(),
-                    "hardware": {
-                        "nvidia": nvidia_available(),
-                        "managed_comfy_supported": managed_comfy_hardware()["supported"],
-                        "managed_comfy_detail": managed_comfy_hardware()["detail"],
-                    },
-                    "runtime_version": 10,
+                    "hardware": runtime_hardware_snapshot(),
+                    "runtime_version": 11,
                 }
             )
             self._json(200, payload)
@@ -844,8 +864,13 @@ class Handler(BaseHTTPRequestHandler):
                         plan["availability_reason"] = str(error)
                         weight_detail = str(error)
 
-                hardware = managed_comfy_hardware()
                 managed_adapter = video_match or image_match
+                if image_match:
+                    hardware = managed_comfy_hardware(image_match[1])
+                elif video_match:
+                    hardware = video_adapter_hardware(video_match[1])
+                else:
+                    hardware = managed_comfy_hardware()
                 hardware_ready = bool(hardware["supported"])
                 artifact_ready = plan.get("artifact_present") is not False
                 if managed_adapter:
@@ -862,6 +887,31 @@ class Handler(BaseHTTPRequestHandler):
                         plan["automatic_launch"] = False
                         plan["availability_label"] = "硬件不支持"
                         plan["availability_reason"] = hardware["detail"]
+                gguf_status = None
+                if backend == "llama.cpp":
+                    size_raw = payload.get("size")
+                    try:
+                        expected_bytes = int(size_raw) if size_raw not in (None, "", 0, "0") else None
+                    except (TypeError, ValueError):
+                        expected_bytes = None
+                    partial_bytes = 0
+                    try:
+                        if payload.get("drive_file_id"):
+                            plan_spec = DriveFileSpec.from_payload(payload)
+                            partial_bytes = int(DRIVE_CACHE.describe(plan_spec).get("partial_bytes") or 0)
+                    except ValueError:
+                        pass
+                    gguf_status = gguf_preflight(
+                        DRIVE_CACHE.root,
+                        expected_bytes=expected_bytes,
+                        partial_bytes=partial_bytes,
+                        threads=MODEL_THREADS,
+                    )
+                    if not gguf_status["ok"]:
+                        plan["automatic_launch"] = False
+                        plan["availability_label"] = "硬件不支持"
+                        plan["availability_reason"] = gguf_status["reason"]
+
                 plan.update(
                     {
                         "drive_api_session": bool(DRIVE_SESSION.access_token),
@@ -874,6 +924,7 @@ class Handler(BaseHTTPRequestHandler):
                         "hardware_detail": (
                             hardware["detail"] if managed_adapter else None
                         ),
+                        "gguf_preflight": gguf_status,
                         "video_adapter": (
                             {
                                 "id": video_match[0],
@@ -945,6 +996,16 @@ class Handler(BaseHTTPRequestHandler):
                 if Path(spec.name).suffix.lower() != ".gguf":
                     raise ValueError("Direct llama.cpp launch currently supports GGUF only.")
 
+                cache_state = DRIVE_CACHE.describe(spec)
+                preflight = gguf_preflight(
+                    DRIVE_CACHE.root,
+                    expected_bytes=spec.size,
+                    partial_bytes=int(cache_state.get("partial_bytes") or 0),
+                    threads=MODEL_THREADS,
+                )
+                if not preflight["ok"]:
+                    raise RuntimeError("GGUF 启动前检查失败：" + str(preflight["reason"]))
+
                 model_name = str(payload.get("display_name") or payload.get("name") or spec.name)
                 relative_path = str(payload.get("relative_path") or spec.name)
                 token = DRIVE_SESSION.get()
@@ -965,6 +1026,7 @@ class Handler(BaseHTTPRequestHandler):
                         "download_total_bytes": result["download_total_bytes"],
                         "download_progress": result["download_progress"],
                         "cache_file": result["cache_file"],
+                        "preflight": preflight,
                     },
                 )
                 return
@@ -1007,7 +1069,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.10")
+    print("Drive Model Local Runtime v0.11")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive source: Google Drive API (no desktop mount required)")
     print("Cache root:", DRIVE_CACHE.root)
