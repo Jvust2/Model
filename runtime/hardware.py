@@ -89,8 +89,9 @@ def _parse_query_line(line: str) -> dict[str, Any]:
     if len(parts) < 3:
         return {}
     name = parts[0]
+    match = re.search(r"[0-9]+(?:\\.[0-9]+)?", parts[1])
     try:
-        vram_mb = int(float(parts[1]))
+        vram_mb = int(float(match.group(0))) if match else None
     except (TypeError, ValueError):
         vram_mb = None
     driver = parts[2] or None
