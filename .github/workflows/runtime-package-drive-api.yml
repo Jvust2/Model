@@ -74,12 +74,12 @@ jobs:
               throw "Expected Wan and Hunyuan video adapters in packaged Runtime."
             }
             $image = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/image/status" -TimeoutSec 3
-            if (($image.supported_adapters | Measure-Object).Count -lt 1) {
-              throw "Expected Pony image adapter in packaged Runtime."
+            if (($image.supported_adapters | Measure-Object).Count -lt 2) {
+              throw "Expected Pony and Qwen Image adapters in packaged Runtime."
             }
             $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/runtime" -TimeoutSec 3
-            if ([int]$runtime.runtime_version -lt 11) {
-              throw "Expected Runtime v0.11 hardware preflight API."
+            if ([int]$runtime.runtime_version -lt 12) {
+              throw "Expected Runtime v0.12 linked Qwen Image API."
             }
             if ($null -eq $runtime.hardware.managed_comfy_supported) {
               throw "Runtime hardware gate is missing."
