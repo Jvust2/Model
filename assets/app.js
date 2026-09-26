@@ -493,10 +493,37 @@
       hay.includes("pony diffusion v6 xl") ||
       hay.includes("pony-diffusion-v6-xl")
     ) {
-      return { id: "pony_diffusion_v6_xl" };
+      return {
+        id: "pony_diffusion_v6_xl",
+        checkpoint: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
+        minBytes: 6000000000
+      };
     }
 
     return null;
+  }
+
+  function imageArtifactState(model, adapter) {
+    if (!adapter) return { ready: false, detail: "没有图像适配器" };
+    const files = Array.isArray(model && model.files) ? model.files : [];
+    const expected = String(adapter.checkpoint || "").toLowerCase();
+    const match = files.find(file =>
+      String(file && file.name || "").toLowerCase() === expected
+    );
+    if (!match) {
+      return {
+        ready: false,
+        detail: "Drive 未发现固定 checkpoint：" + adapter.checkpoint
+      };
+    }
+    const size = Number(match.size || 0);
+    if (!Number.isFinite(size) || size < Number(adapter.minBytes || 0)) {
+      return {
+        ready: false,
+        detail: "Drive checkpoint 大小异常，可能不完整"
+      };
+    }
+    return { ready: true, detail: "固定 checkpoint 已确认" };
   }
 
   function managedComfyHardware() {
@@ -786,6 +813,14 @@
     return [
       "后端：" + (plan.backend || "未知"),
       "工作区：" + (plan.workspace || "generic"),
+      "权重：" + (
+        plan.artifact_present === true
+          ? "已发现"
+          : plan.artifact_present === false
+            ? "未就绪"
+            : "未知"
+      ),
+      plan.weight_detail ? "权重说明：" + plan.weight_detail : "",
       "本机检测：" + (status.detected ? "已检测到" : "未检测到"),
       status.detail ? "状态：" + status.detail : "",
       plan.hardware_supported === false ? "硬件：不支持" : "",
@@ -817,7 +852,14 @@
           relative_path: model.relativePath,
           name: model.name,
           model_id: model.id,
-          artifact_present: !model.vaultMissing
+          artifact_present: !model.vaultMissing,
+          files: (Array.isArray(model.files) ? model.files : []).map(file => ({
+            drive_file_id: file.id,
+            file_name: file.name,
+            size: Number(file.size || 0) || null,
+            md5_checksum: file.md5Checksum || "",
+            resource_key: file.resourceKey || ""
+          }))
         })
       });
 
@@ -903,6 +945,9 @@
       const info = backendInfo(model);
       const videoAdapter = videoAdapterFor(model);
       const imageAdapter = imageAdapterFor(model);
+      const imageArtifact = imageAdapter
+        ? imageArtifactState(model, imageAdapter)
+        : null;
       const managedAdapter = videoAdapter || imageAdapter;
       const hardware = managedComfyHardware();
       const capability = capabilityInfo(model);
@@ -912,11 +957,13 @@
         model.qualityTier || "",
         model.vaultMissing
           ? "主库未发现文件"
-          : managedAdapter && hardware.known && !hardware.supported
-            ? "硬件不支持"
-            : capability
-              ? capability.label
-              : "",
+          : imageAdapter && imageArtifact && !imageArtifact.ready
+            ? "Drive 文件不完整"
+            : managedAdapter && hardware.known && !hardware.supported
+              ? "硬件不支持"
+              : capability
+                ? capability.label
+                : "",
         videoAdapter ? "网页视频适配已支持" : "",
         imageAdapter ? "网页图像适配已支持" : "",
         managedAdapter
@@ -936,7 +983,11 @@
       path.textContent = model.vaultMissing
         ? "登记表中存在；所选 AI-Model-Vault 内未发现模型文件。"
         : (model.packagePath || model.relativePath) +
-          (capability && capability.label !== "可直接使用" ? " · " + capability.reason : "");
+          (imageAdapter && imageArtifact && !imageArtifact.ready
+            ? " · " + imageArtifact.detail
+            : capability && capability.label !== "可直接使用"
+              ? " · " + capability.reason
+              : "");
 
       const actions = document.createElement("div");
       actions.className = "model-actions";
@@ -1006,6 +1057,8 @@
         actions.appendChild(useVideo);
       } else if (
         imageAdapter &&
+        imageArtifact &&
+        imageArtifact.ready &&
         hardware.known &&
         hardware.supported &&
         (!capability || capability.label === "可直接使用")
