@@ -32,7 +32,7 @@ if ($ReadyWarnSeconds -le 0) {
 }
 
 if (-not $CacheRoot) {
-    $CacheRoot = Join-Path $env:LOCALAPPDATA "JvustModel\cache"
+    $CacheRoot = "D:\Model"
 }
 
 New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null

@@ -66,6 +66,30 @@ class DriveCacheTests(unittest.TestCase):
             self.assertEqual(cached, path)
             opener2.assert_not_called()
 
+    def test_cache_entries_persist_until_explicit_delete(self):
+        body = b"GGUF" + b"x" * 20
+        with tempfile.TemporaryDirectory() as temp:
+            cache = DriveCache(Path(temp))
+            spec = DriveFileSpec(
+                file_id="1AbCdEfGhIjKlMnOp",
+                name="persistent.gguf",
+                size=len(body),
+            )
+            with mock.patch(
+                "runtime.drive_cache.urlopen",
+                return_value=FakeResponse(body, 200),
+            ):
+                cache.download(spec, "token")
+
+            entries = cache.list_entries()
+            self.assertEqual(len(entries), 1)
+            self.assertTrue(entries[0]["cached"])
+            self.assertEqual(entries[0]["name"], "persistent.gguf")
+
+            removed = cache.delete_file_id(spec.file_id)
+            self.assertTrue(removed["removed"])
+            self.assertEqual(cache.list_entries(), [])
+
     def test_payload_uses_file_name_for_extension(self):
         spec = DriveFileSpec.from_payload(
             {

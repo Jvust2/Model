@@ -1,7 +1,8 @@
 param(
     [switch]$Repair,
     [switch]$NoStart,
-    [switch]$SelfTest
+    [switch]$SelfTest,
+    [string]$CacheRoot = "D:\Model"
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,7 +12,7 @@ $baseDir = Join-Path $env:LOCALAPPDATA "JvustModel"
 $appDir = Join-Path $baseDir "app"
 $configPath = Join-Path $baseDir "runtime.json"
 $logsDir = Join-Path $baseDir "logs"
-$cacheDir = Join-Path $baseDir "cache"
+$cacheDir = $CacheRoot
 $trayPidPath = Join-Path $baseDir "tray.pid"
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $runName = "JvustModelRuntime"
@@ -75,9 +76,10 @@ function Read-Config {
     }
 }
 
-function Save-Config([string]$llamaPath) {
+function Save-Config([string]$llamaPath, [string]$cachePath) {
     $config = [PSCustomObject]@{
         llamaServerPath = $llamaPath
+        cacheRoot = $cachePath
         bridgePort = 8765
         modelPort = 8080
         gpuLayers = 0
@@ -147,9 +149,13 @@ Write-Host "Model Runtime Installer" -ForegroundColor Cyan
 Write-Host "This is a one-time install. Google Drive Desktop is not required." -ForegroundColor Green
 Write-Host ""
 
-New-Item -ItemType Directory -Force -Path $baseDir, $appDir, $logsDir, $cacheDir | Out-Null
-
 $config = Read-Config
+if ($config -and $config.cacheRoot -and $CacheRoot -eq "D:\Model") {
+    $CacheRoot = [string]$config.cacheRoot
+    $cacheDir = $CacheRoot
+}
+
+New-Item -ItemType Directory -Force -Path $baseDir, $appDir, $logsDir, $cacheDir | Out-Null
 $llamaPath = $null
 if ($config -and (Test-LlamaPath ([string]$config.llamaServerPath))) {
     $llamaPath = (Resolve-Path -LiteralPath ([string]$config.llamaServerPath)).Path
@@ -169,7 +175,7 @@ foreach ($name in $required) {
     Copy-Item -LiteralPath (Join-Path $sourceRuntime $name) -Destination (Join-Path $appDir $name) -Force
 }
 
-Save-Config $llamaPath
+Save-Config $llamaPath $cacheDir
 
 New-Item -Path $runKey -Force | Out-Null
 New-ItemProperty -Path $runKey -Name $runName -PropertyType String -Value (Startup-Command) -Force | Out-Null

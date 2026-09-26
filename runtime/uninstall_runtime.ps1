@@ -6,7 +6,16 @@ $ErrorActionPreference = "Stop"
 
 $baseDir = Join-Path $env:LOCALAPPDATA "JvustModel"
 $appDir = Join-Path $baseDir "app"
-$cacheDir = Join-Path $baseDir "cache"
+$configPath = Join-Path $baseDir "runtime.json"
+$cacheDir = "D:\Model"
+if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+    try {
+        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        if ($config.cacheRoot) {
+            $cacheDir = [string]$config.cacheRoot
+        }
+    } catch {}
+}
 $trayPidPath = Join-Path $baseDir "tray.pid"
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $runName = "JvustModelRuntime"
@@ -42,5 +51,6 @@ if ($PurgeCache) {
 
 Write-Host "Model Runtime background app removed." -ForegroundColor Green
 if (-not $PurgeCache) {
-    Write-Host "Model cache/config kept at: $baseDir"
+    Write-Host "Model cache kept at: $cacheDir"
+    Write-Host "Runtime config kept at: $baseDir"
 }

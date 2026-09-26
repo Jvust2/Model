@@ -35,9 +35,13 @@ Example:
 
     .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe"
 
+Default cache:
+
+    D:\Model
+
 Optional custom cache:
 
-    .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe" -CacheRoot "D:\ModelCache"
+    .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe" -CacheRoot "E:\ModelCache"
 
 ## Cache behavior
 
@@ -52,3 +56,9 @@ Later launches reuse the valid complete cache.
 Standard llama.cpp expects a seekable local file and may use memory mapping/native filesystem access. A full-file cache is the reliable baseline.
 
 A future sparse-cache or virtual filesystem adapter may reduce local storage requirements, but it should only replace this baseline after correctness and performance are verified.
+
+## Persistent cache policy
+
+Model files are fetched on demand when the user starts a model. Completed files remain in the local cache across Runtime restarts and Windows reboots. The web Runtime panel lists cached models and provides explicit actions to delete one model or clear all cached models. Deleting a cache never deletes the source file in Google Drive.
+
+This is persistent on-demand download, not transparent block-level remote loading. The current `llama-server.exe` receives a local seekable GGUF path. A future sparse-cache or virtual-filesystem adapter can reduce the first download, but it requires changes below the current executable boundary.
