@@ -477,6 +477,7 @@ class ImageRuntime:
         if not hardware["supported"]:
             raise RuntimeError("硬件不支持：" + str(hardware["detail"]))
 
+        self.comfy.cancel.clear()
         if self.comfy.snapshot().get("running"):
             raise RuntimeError("已有视频任务正在使用 ComfyUI，请先等待或停止视频任务。")
 
@@ -508,6 +509,7 @@ class ImageRuntime:
 
     def stop(self) -> dict:
         self.cancel.set()
+        self.comfy.cancel.set()
         try:
             json_request(COMFY_BASE + "/interrupt", method="POST", payload={}, timeout=2)
         except Exception:
