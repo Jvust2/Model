@@ -68,6 +68,18 @@ The backend target is selected from model_metadata.json first.
 
 The Runtime can detect whether these environments are installed and can return a model execution plan. It does not yet pretend that arbitrary .safetensors/.pth/.ckpt files can be launched generically, because those formats do not encode enough information to infer every architecture, pipeline, workflow, preprocessor, or adapter automatically.
 
+## Model availability states
+
+Runtime now exposes `GET /v1/models/capabilities` and includes the same state in `POST /v1/models/plan`:
+
+- **可直接使用**: this repository has a tested launcher for the exact model family.
+- **需要适配器**: the Drive artifact is present, but the task-specific input/output adapter is not connected yet.
+- **需要工作流**: the weights are present, but the ComfyUI/Diffusers workflow is not connected yet.
+- **Drive 文件不完整**: the integrity report says required weights or dependencies are missing in Drive.
+- **依赖不完整**: this model depends on another incomplete model.
+
+The website displays these states on every model card and in the runtime plan. A registered model is therefore never presented as runnable solely because its file extension is recognized.
+
 ## Runtime endpoints
 
     GET  /v1/backends
