@@ -22,6 +22,13 @@
     }
   ];
 
+  const CHAT_BOOTSTRAP = {
+    folderName: "notebook_launchers",
+    fileName: "启动_Qwen3-0.6B_Q8_0_DriveFirst.ipynb",
+    modelName: "Qwen3-0.6B Q8_0",
+    approxSize: "约 639 MB"
+  };
+
   const $ = id => document.getElementById(id);
 
   function setStatus(text) {
@@ -310,6 +317,59 @@
         setStatus("寻找 Drive 文件夹失败");
       }
       return null;
+    }
+  }
+
+  async function openChatBootstrap(button) {
+    showError("");
+    button.disabled = true;
+    try {
+      await ensureAccessToken();
+
+      let rootId = $("folderId").value.trim();
+      if (!rootId) {
+        const root = await findPreferredFolder({ quiet: false });
+        if (!root) {
+          throw new Error("未找到 AI-Model-Vault，无法定位聊天模型引导器。");
+        }
+        rootId = root.id;
+      }
+
+      const launcherFolder = await window.DriveModelClient.findFolderByName(
+        accessToken,
+        CHAT_BOOTSTRAP.folderName,
+        rootId
+      );
+      if (!launcherFolder.folder) {
+        throw new Error(
+          "AI-Model-Vault 中没有 notebook_launchers 文件夹。"
+        );
+      }
+
+      const notebook = await window.DriveModelClient.findFileByName(
+        accessToken,
+        CHAT_BOOTSTRAP.fileName,
+        launcherFolder.folder.id
+      );
+      if (!notebook) {
+        throw new Error(
+          "未找到默认聊天模型引导器：" + CHAT_BOOTSTRAP.fileName
+        );
+      }
+
+      const url =
+        "https://colab.research.google.com/drive/" +
+        encodeURIComponent(notebook.id);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setStatus(
+        "已打开 " + CHAT_BOOTSTRAP.modelName +
+        " Drive-first 引导器；完成后回到这里重新扫描。"
+      );
+    } catch (error) {
+      showError(error);
+      setStatus("无法打开默认聊天模型引导器");
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -1041,6 +1101,61 @@
         "还没有模型索引。连接 Drive 后寻找 AI-Model-Vault，再扫描模型。";
       list.appendChild(empty);
       return;
+    }
+
+    const hasChatGguf = models.some(
+      model =>
+        model &&
+        model.directLaunch &&
+        !model.vaultMissing &&
+        model.backend === "llama.cpp"
+    );
+
+    if (!hasChatGguf) {
+      const card = document.createElement("article");
+      card.className = "model-card";
+
+      const head = document.createElement("div");
+      head.className = "model-card-head";
+
+      const titleWrap = document.createElement("div");
+      titleWrap.className = "model-title-wrap";
+      const badge = document.createElement("span");
+      badge.className = "format-badge";
+      badge.textContent = "BOOTSTRAP";
+      const title = document.createElement("div");
+      title.className = "model-title";
+      title.textContent = CHAT_BOOTSTRAP.modelName + " · 默认聊天验证模型";
+      titleWrap.append(badge, title);
+
+      const size = document.createElement("div");
+      size.className = "model-size";
+      size.textContent = CHAT_BOOTSTRAP.approxSize;
+      head.append(titleWrap, size);
+
+      const meta = document.createElement("div");
+      meta.className = "model-meta";
+      meta.textContent =
+        "llm · chat · 官方 Qwen GGUF · llama.cpp · Drive-first";
+
+      const path = document.createElement("div");
+      path.className = "model-path";
+      path.textContent =
+        "当前 AI-Model-Vault 尚未发现聊天 GGUF。运行一次 Drive 引导器，" +
+        "它会下载并校验官方 Qwen3-0.6B Q8_0；完成后重新扫描即可直接使用。";
+
+      const actions = document.createElement("div");
+      actions.className = "model-actions";
+      const prepare = document.createElement("button");
+      prepare.type = "button";
+      prepare.dataset.icon = "play";
+      prepare.className = "primary";
+      prepare.textContent = "准备默认聊天模型";
+      prepare.addEventListener("click", () => openChatBootstrap(prepare));
+      actions.appendChild(prepare);
+
+      card.append(head, meta, path, actions);
+      list.appendChild(card);
     }
 
     for (const model of models) {
