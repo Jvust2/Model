@@ -233,16 +233,22 @@
       (entry && entry.recommended_runtime ? entry.recommended_runtime : [])
         .map(value => String(value).toLowerCase())
     );
+    const category = String(entry && entry.category || "");
 
-    if (extensions.has(".gguf") || runtimes.has("llama.cpp")) return "llama.cpp";
+    // Registry routing wins over a file extension for mixed model packages.
+    // Qwen-Image includes a GGUF diffusion model but is a ComfyUI image package,
+    // not a llama.cpp chat model.
+    if (runtimes.has("llama.cpp")) return "llama.cpp";
     if (runtimes.has("comfyui")) return "ComfyUI";
     if (runtimes.has("diffusers")) return "Diffusers";
+    if (extensions.has(".gguf") && ["llm", "reasoning", "code", "novel"].includes(category)) {
+      return "llama.cpp";
+    }
     if (runtimes.has("transformers")) return "Transformers";
     if (runtimes.has("pytorch")) return "PyTorch";
     if (extensions.has(".onnx")) return "ONNX Runtime";
     if (extensions.has(".tflite")) return "TFLite";
 
-    const category = String(entry && entry.category || "");
     if (["image", "image-edit", "image-anime", "image-nsfw", "video"].includes(category)) {
       return "ComfyUI";
     }
