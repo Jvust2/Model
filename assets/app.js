@@ -1522,7 +1522,7 @@
 
   $("installRuntimeBtn").addEventListener("click", () => {
     window.open(
-      "https://github.com/Jvust2/Model#one-time-windows-install",
+      "https://github.com/Jvust/Model#one-time-windows-install",
       "_blank",
       "noopener,noreferrer"
     );
