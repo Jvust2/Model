@@ -70,6 +70,8 @@ The Runtime can detect whether these environments are installed and can return a
 
 ## Model availability states
 
+The metadata registry lists 27 intended models, but the selected `AI-Model-Vault` may contain fewer actual weight packages. The website now includes every registered model in the library: entries with no scanned files show **主库未发现文件** and have no launch action. Runtime plans receive the browser scan result as `artifact_present`; adapter support and Drive file presence are separate facts. The static `vault_snapshot` field records the 2026-09-26 inventory and should be refreshed after Drive changes.
+
 Runtime now exposes `GET /v1/models/capabilities` and includes the same state in `POST /v1/models/plan`:
 
 - **可直接使用**: this repository has a tested launcher for the exact model family.
