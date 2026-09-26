@@ -57,7 +57,9 @@ Use `runtime\Model.cmd` only as a manual/debug launcher.
 
 Default model cache:
 
-    %LOCALAPPDATA%\JvustModel\cache
+    D:\Model
+
+You can override it with \`MODEL_CACHE_ROOT\` or \`runtime\start_bridge.ps1 -CacheRoot "E:\ModelCache"\`.
 
 Runtime config:
 
