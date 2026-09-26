@@ -172,6 +172,33 @@ Runtime v0.12 checks hardware before starting large local workloads.
 
 If NVIDIA/CUDA is unavailable, image/video models stay on the run-plan path and the UI reports **需要远程 NVIDIA Runtime** instead of starting a large local download. These thresholds are startup safety floors, not guarantees that every resolution/step configuration will fit.
 
+## Remote NVIDIA Runtime
+
+Devices without a usable local NVIDIA CUDA path can point the same website at another NVIDIA Windows machine without changing model/task APIs.
+
+On the NVIDIA host:
+
+    runtime\Enable-Remote-Nvidia.cmd
+
+This keeps Model Runtime bound to `127.0.0.1:8765`, exposes it privately through **Tailscale Serve** on dedicated HTTPS port `8443`, generates a random Runtime token, and restarts the local Runtime with remote authentication enabled.
+
+On the client, open **高级诊断**, set **Runtime Bridge** to the printed `https://<node>.<tailnet>.ts.net:8443` address, enter the Runtime token, and click **重新连接**.
+
+Security properties:
+
+- Tailscale Serve only, never Funnel;
+- Runtime continues to listen on localhost only;
+- tailnet ACLs remain in force;
+- protected Runtime API calls require a 256-bit token;
+- the browser keeps the Runtime token only in `sessionStorage`;
+- non-loopback Runtime URLs must use HTTPS;
+- Drive OAuth access tokens are still memory-only inside Runtime.
+
+Disable the remote listener with:
+
+    runtime\Disable-Remote-Nvidia.cmd
+
+See `docs/REMOTE_NVIDIA_RUNTIME.md` for the architecture, token rotation, and validation boundary.
 ## Video workspace
 
 Select an adapted video model in the model library and click **使用视频模型**.
