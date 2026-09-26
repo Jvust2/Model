@@ -780,7 +780,8 @@
           package_path: model.packagePath || model.relativePath,
           relative_path: model.relativePath,
           name: model.name,
-          model_id: model.id
+          model_id: model.id,
+          artifact_present: !model.vaultMissing
         })
       });
 
