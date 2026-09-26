@@ -478,6 +478,39 @@
     return null;
   }
 
+  function imageAdapterFor(model) {
+    if (!model) return null;
+    const hay = [
+      model.id,
+      model.name,
+      model.repo,
+      model.packagePath,
+      model.relativePath
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (
+      hay.includes("pony_diffusion_v6_xl") ||
+      hay.includes("pony diffusion v6 xl") ||
+      hay.includes("pony-diffusion-v6-xl")
+    ) {
+      return { id: "pony_diffusion_v6_xl" };
+    }
+
+    return null;
+  }
+
+  function managedComfyHardware() {
+    const hardware = runtimeState && runtimeState.hardware;
+    if (!hardware) {
+      return { known: false, supported: false, detail: "等待新版 Runtime 检查本机硬件" };
+    }
+    return {
+      known: true,
+      supported: !!hardware.managed_comfy_supported,
+      detail: String(hardware.managed_comfy_detail || "")
+    };
+  }
+
   function stopVideoPolling() {
     if (videoPollTimer) {
       clearTimeout(videoPollTimer);
@@ -755,6 +788,9 @@
       "工作区：" + (plan.workspace || "generic"),
       "本机检测：" + (status.detected ? "已检测到" : "未检测到"),
       status.detail ? "状态：" + status.detail : "",
+      plan.hardware_supported === false ? "硬件：不支持" : "",
+      plan.hardware_supported === true ? "硬件：已通过" : "",
+      plan.hardware_detail ? "硬件说明：" + plan.hardware_detail : "",
       plan.availability_label ? "模型状态：" + plan.availability_label : "",
       plan.adapter ? "适配器：" + plan.adapter : "",
       plan.availability_reason ? "说明：" + plan.availability_reason : "",
@@ -866,15 +902,29 @@
       meta.className = "model-meta";
       const info = backendInfo(model);
       const videoAdapter = videoAdapterFor(model);
+      const imageAdapter = imageAdapterFor(model);
+      const managedAdapter = videoAdapter || imageAdapter;
+      const hardware = managedComfyHardware();
       const capability = capabilityInfo(model);
       const pieces = [
         model.category || "unknown",
         model.workspace || "generic",
         model.qualityTier || "",
-        model.vaultMissing ? "主库未发现文件" : capability ? capability.label : "",
+        model.vaultMissing
+          ? "主库未发现文件"
+          : managedAdapter && hardware.known && !hardware.supported
+            ? "硬件不支持"
+            : capability
+              ? capability.label
+              : "",
         videoAdapter ? "网页视频适配已支持" : "",
-        videoAdapter
-          ? "首次运行自动准备"
+        imageAdapter ? "网页图像适配已支持" : "",
+        managedAdapter
+          ? hardware.known
+            ? hardware.supported
+              ? "硬件检查已通过"
+              : "当前硬件不满足 managed ComfyUI"
+            : "等待 Runtime 硬件检查"
           : info
             ? (info.detected ? "后端已检测" : "后端未安装")
             : ""
@@ -936,7 +986,12 @@
         launch.className = "primary";
         launch.addEventListener("click", () => startModel(model));
         actions.appendChild(launch);
-      } else if (videoAdapter && (!capability || capability.label === "可直接使用")) {
+      } else if (
+        videoAdapter &&
+        hardware.known &&
+        hardware.supported &&
+        (!capability || capability.label === "可直接使用")
+      ) {
         const useVideo = document.createElement("button");
         useVideo.type = "button";
         useVideo.dataset.icon = "play";
@@ -944,6 +999,28 @@
         useVideo.className = "primary";
         useVideo.addEventListener("click", () => openVideoWorkspace(model));
         actions.appendChild(useVideo);
+      } else if (
+        imageAdapter &&
+        hardware.known &&
+        hardware.supported &&
+        (!capability || capability.label === "可直接使用")
+      ) {
+        const useImage = document.createElement("button");
+        useImage.type = "button";
+        useImage.dataset.icon = "play";
+        useImage.textContent = "使用图像模型";
+        useImage.className = "primary";
+        useImage.addEventListener("click", () => {
+          if (
+            window.ModelWorkspaces &&
+            typeof window.ModelWorkspaces.openModel === "function"
+          ) {
+            window.ModelWorkspaces.openModel(model);
+          } else {
+            showError("图像工作区尚未加载，请刷新网页后重试。");
+          }
+        });
+        actions.appendChild(useImage);
       } else if (!model.vaultMissing && (!capability || !["Drive 文件不完整", "依赖模型不完整"].includes(capability.label))) {
         const prepare = document.createElement("button");
         prepare.type = "button";
