@@ -17,8 +17,10 @@ from urllib.request import Request, urlopen
 
 try:
     from .drive_cache import default_cache_root
+    from .hardware import managed_comfy_preflight, nvidia_status
 except ImportError:
     from drive_cache import default_cache_root
+    from hardware import managed_comfy_preflight, nvidia_status
 
 try:
     import py7zr  # bundled in the standalone Windows Runtime build
@@ -71,6 +73,8 @@ ADAPTERS = {
         "match": ("wan2.2-ti2v-5b", "wan2.2 ti2v 5b"),
         "workflow": "workflows/video_wan2_2_5B_ti2v.json",
         "output_node": "58",
+        "min_vram_mb": 12 * 1024,
+        "min_disk_free_gb": 10.0,
         "defaults": {
             "width": 832,
             "height": 480,
@@ -85,6 +89,8 @@ ADAPTERS = {
         "match": ("hunyuanvideo-1.5", "hunyuanvideo 1.5"),
         "workflow": "workflows/video_hunyuan_video_1.5_720p_t2v.json",
         "output_node": "102",
+        "min_vram_mb": 16 * 1024,
+        "min_disk_free_gb": 10.0,
         "defaults": {
             "width": 1280,
             "height": 720,
@@ -128,11 +134,15 @@ def comfy_reachable() -> bool:
 
 
 def nvidia_available() -> bool:
-    candidates = [
-        shutil.which("nvidia-smi"),
-        str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "nvidia-smi.exe"),
-    ]
-    return any(path and Path(path).exists() for path in candidates)
+    return bool(nvidia_status().get("detected"))
+
+
+def adapter_hardware(adapter: dict) -> dict:
+    return managed_comfy_preflight(
+        VIDEO_ROOT,
+        min_vram_mb=int(adapter.get("min_vram_mb") or 0),
+        min_disk_free_gb=float(adapter.get("min_disk_free_gb") or 10.0),
+    )
 
 
 def _link_map(workflow: dict) -> dict[int, tuple]:
@@ -459,6 +469,10 @@ class VideoRuntime:
             raise ValueError("这个视频模型还没有自动运行适配器。")
         adapter_key, adapter = matched
 
+        hardware = adapter_hardware(adapter)
+        if not hardware["supported"]:
+            raise RuntimeError("硬件不支持：" + str(hardware["detail"]))
+
         with self.lock:
             if self.job_thread and self.job_thread.is_alive():
                 raise RuntimeError("已有视频任务正在运行。")
@@ -608,8 +622,8 @@ class VideoRuntime:
 
         if os.name == "nt" and not nvidia_available():
             raise RuntimeError(
-                "v0.9 视频自动运行首版需要 NVIDIA GPU/驱动；"
-                "没有检测到 nvidia-smi，因此没有开始下载 ComfyUI。"
+                "需要远程 NVIDIA Runtime：本机未检测到 NVIDIA GPU / nvidia-smi，"
+                "因此没有开始下载 managed ComfyUI。"
             )
 
         if py7zr is None:
