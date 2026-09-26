@@ -101,6 +101,8 @@ if ($Disable) {
     Set-ConfigProperty $config "remoteEnabled" $false
     Set-ConfigProperty $config "remoteUrl" ""
     Set-ConfigProperty $config "remoteToken" ""
+    Set-ConfigProperty $config "remoteMode" ""
+    Set-ConfigProperty $config "remoteServePort" $ServePort
     Save-Config $config
     Restart-ModelRuntime
     Write-Host ""
