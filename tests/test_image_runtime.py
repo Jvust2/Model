@@ -29,7 +29,7 @@ class ImageAdapterTests(unittest.TestCase):
             {
                 "files": [
                     {
-                        "id": "1wWI6_t6VpOybaoeGn0sSskfKy3SDCrTu",
+                        "id": "testPonyCheckpoint1234567890",
                         "name": PONY_CHECKPOINT,
                         "size": 6_938_041_050,
                     }
@@ -46,9 +46,24 @@ class ImageAdapterTests(unittest.TestCase):
                 {
                     "files": [
                         {
-                            "id": "1wWI6_t6VpOybaoeGn0sSskfKy3SDCrTu",
+                            "id": "testPonyCheckpoint1234567890",
                             "name": PONY_CHECKPOINT,
                             "size": 1024,
+                        }
+                    ]
+                },
+                ADAPTERS["pony_diffusion_v6_xl"],
+            )
+
+    def test_rejects_different_large_safetensors(self):
+        with self.assertRaises(FileNotFoundError):
+            checkpoint_spec(
+                {
+                    "files": [
+                        {
+                            "id": "testOtherCheckpoint123456789",
+                            "name": "unrelated-large-model.safetensors",
+                            "size": 8_000_000_000,
                         }
                     ]
                 },
