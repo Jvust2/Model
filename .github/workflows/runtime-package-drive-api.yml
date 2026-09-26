@@ -115,7 +115,7 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\background.ps1 -SelfTest
           if (-not (Test-Path -LiteralPath "runtime\ModelRuntime.exe" -PathType Leaf)) { throw "ModelRuntime.exe missing after build." }
 
-      - name: Build ZIP
+      - name: Assemble runtime package
         shell: powershell
         run: |
           $root = "Model-Runtime"
@@ -125,11 +125,10 @@ jobs:
           Copy-Item -Force index.html "$root\index.html"
           Copy-Item -Recurse -Force assets "$root\assets"
           Copy-Item -Force sw.js "$root\sw.js"
-          Compress-Archive -Path "$root\*" -DestinationPath "Model-Web-Runtime.zip" -Force
 
-      - name: Upload ZIP
+      - name: Upload runtime package
         uses: actions/upload-artifact@v4
         with:
           name: Model-Web-Runtime-${{ github.sha }}
-          path: Model-Web-Runtime.zip
+          path: Model-Runtime/
           if-no-files-found: error
