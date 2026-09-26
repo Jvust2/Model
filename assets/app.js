@@ -1186,6 +1186,16 @@
     }
   }
 
+  window.ModelApp = {
+    runtimeBase: () => runtimeBase || window.MODEL_CONFIG.runtimeBase,
+    syncRuntimeDriveSession: async () => {
+      saveRuntimeBase();
+      await ensureAccessToken();
+      await syncRuntimeDriveSession();
+      return true;
+    }
+  };
+
   async function init() {
     window.DriveModelClient.captureOAuthSession();
     await window.DriveModelClient.registerServiceWorker();
