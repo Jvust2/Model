@@ -87,6 +87,14 @@ GGUF models are downloaded directly through Google Drive API.
 
 Large models still need enough local disk space for the cache. The desktop Drive app is not needed.
 
+## 当前实际可用状态
+
+模型登记、Drive 文件和运行适配器是三个不同状态。网页会展示登记表中的全部模型，但只有同时满足“Drive 主库有权重”和“对应运行适配器已接通”的模型才会出现启动入口。
+
+目前已经接通网页自动运行的模型是 Wan2.2 TI2V 5B 和 HunyuanVideo 1.5 视频工作流，以及 Drive 中实际存在 GGUF 文件时的 llama.cpp 聊天链路。图像、OCR、Embedding、Reranker 和时间序列模型会显示后端检测与运行方案，直到对应的模型家族工作流或专用适配器接通。
+
+模型卡片上的“查看运行方案”只会读取本机后端和模型状态，不会把任意 .safetensors、.pth 或 .ckpt 文件假设成可以直接启动的模型。这样可以避免下载大量文件后才发现缺少 VAE、文本编码器、预处理器或工作流。
+
 ## Backend routing
 
 Current targets:

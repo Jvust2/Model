@@ -948,7 +948,7 @@
         const prepare = document.createElement("button");
         prepare.type = "button";
         prepare.dataset.icon = "play";
-        prepare.textContent = "准备 " + (model.backend || "后端");
+        prepare.textContent = "查看运行方案";
         prepare.className = "primary";
         prepare.addEventListener("click", () => planModel(model, prepare));
         actions.appendChild(prepare);
