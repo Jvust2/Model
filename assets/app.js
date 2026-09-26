@@ -526,10 +526,44 @@
     ) {
       return {
         id: "pony_diffusion_v6_xl",
-        checkpoint: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
-        minBytes: 6000000000,
+        artifacts: [
+          {
+            role: "checkpoint",
+            name: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
+            minBytes: 6000000000
+          }
+        ],
         minVramMb: 8 * 1024,
         minDiskFreeGb: 10
+      };
+    }
+
+    if (
+      hay.includes("qwen_image_2_1_int8") ||
+      hay.includes("qwen-image-2.1") ||
+      hay.includes("qwen image 2.1")
+    ) {
+      return {
+        id: "qwen_image_2_1_int8",
+        artifacts: [
+          {
+            role: "unet",
+            name: "qwen-image-2.1-Q4_K_M.gguf",
+            minBytes: 4500000000
+          },
+          {
+            role: "clip",
+            name: "qwen3vl_8b_int8_convrot.safetensors",
+            minBytes: 9000000000
+          },
+          {
+            role: "vae",
+            name: "qwen_image_2.1_vae_bf16.safetensors",
+            minBytes: 650000000
+          }
+        ],
+        minVramMb: 14 * 1024,
+        minDiskFreeGb: 18
       };
     }
 
@@ -539,24 +573,47 @@
   function imageArtifactState(model, adapter) {
     if (!adapter) return { ready: false, detail: "没有图像适配器" };
     const files = Array.isArray(model && model.files) ? model.files : [];
-    const expected = String(adapter.checkpoint || "").toLowerCase();
-    const match = files.find(file =>
-      String(file && file.name || "").toLowerCase() === expected
-    );
-    if (!match) {
+    const artifacts = Array.isArray(adapter.artifacts) ? adapter.artifacts : [];
+    if (!artifacts.length) {
+      return { ready: false, detail: "图像适配器没有声明固定模型文件" };
+    }
+
+    const missing = [];
+    const invalid = [];
+    for (const artifact of artifacts) {
+      const expected = String(artifact.name || "").toLowerCase();
+      const match = files.find(file =>
+        String(file && file.name || "").toLowerCase() === expected
+      );
+      if (!match) {
+        missing.push(artifact.name);
+        continue;
+      }
+      const size = Number(match.size || 0);
+      if (
+        !Number.isFinite(size) ||
+        size < Number(artifact.minBytes || 0)
+      ) {
+        invalid.push(artifact.name);
+      }
+    }
+
+    if (missing.length) {
       return {
         ready: false,
-        detail: "Drive 未发现固定 checkpoint：" + adapter.checkpoint
+        detail: "Drive 缺少固定文件：" + missing.join("、")
       };
     }
-    const size = Number(match.size || 0);
-    if (!Number.isFinite(size) || size < Number(adapter.minBytes || 0)) {
+    if (invalid.length) {
       return {
         ready: false,
-        detail: "Drive checkpoint 大小异常，可能不完整"
+        detail: "Drive 文件大小异常：" + invalid.join("、")
       };
     }
-    return { ready: true, detail: "固定 checkpoint 已确认" };
+    return {
+      ready: true,
+      detail: artifacts.length + " 个固定模型文件已确认"
+    };
   }
 
   function managedComfyHardware(adapter = null) {
