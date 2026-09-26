@@ -136,6 +136,20 @@ Current direct image adapter:
 
 FLUX.2 Klein 4B FP8 remains **adapter required** until its complete companion-component/runtime path is verified; a `.safetensors` file alone is not treated as runnable.
 
+## Hardware preflight
+
+Runtime v0.11 checks hardware before starting large local workloads.
+
+- managed ComfyUI: detects `nvidia-smi`, CUDA version, GPU/VRAM and cache free space;
+- Pony image safety floor: 8 GB VRAM;
+- Wan2.2 TI2V 5B safety floor: 12 GB VRAM;
+- HunyuanVideo 1.5 safety floor: 16 GB VRAM;
+- managed ComfyUI keeps at least 10 GB cache free space before launch;
+- GGUF launch plans report cache disk, available system memory and configured CPU threads;
+- Drive downloads verify the remaining model bytes plus a 2 GB cache reserve before transfer.
+
+If NVIDIA/CUDA is unavailable, image/video models stay on the run-plan path and the UI reports **需要远程 NVIDIA Runtime** instead of starting a large local download. These thresholds are startup safety floors, not guarantees that every resolution/step configuration will fit.
+
 ## Video workspace
 
 Select an adapted video model in the model library and click **使用视频模型**.
