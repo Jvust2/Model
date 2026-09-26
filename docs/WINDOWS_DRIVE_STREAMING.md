@@ -35,9 +35,13 @@ Example:
 
     .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe"
 
+Default cache:
+
+    D:\Model
+
 Optional custom cache:
 
-    .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe" -CacheRoot "D:\ModelCache"
+    .\runtime\start_bridge.ps1 -LlamaServerPath "D:\llama.cpp\llama-server.exe" -CacheRoot "E:\ModelCache"
 
 ## Cache behavior
 
