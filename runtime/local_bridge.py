@@ -23,6 +23,7 @@ try:
     from .image_runtime import (
         ImageRuntime,
         adapter_for as image_adapter_for,
+        checkpoint_spec as image_checkpoint_spec,
         managed_comfy_hardware,
     )
     from .video_runtime import (
@@ -37,6 +38,7 @@ except ImportError:
     from image_runtime import (
         ImageRuntime,
         adapter_for as image_adapter_for,
+        checkpoint_spec as image_checkpoint_spec,
         managed_comfy_hardware,
     )
     from video_runtime import (
@@ -820,19 +822,43 @@ class Handler(BaseHTTPRequestHandler):
                 package_path = str(payload.get("package_path") or "")
                 video_match = video_adapter_for(name, model_id)
                 image_match = image_adapter_for(name, model_id, package_path)
+                weight_detail = (
+                    "Drive 已扫描到模型包"
+                    if plan.get("artifact_present") is True
+                    else "Drive 未确认可用模型权重"
+                    if plan.get("artifact_present") is False
+                    else "权重状态未知"
+                )
+                if image_match:
+                    try:
+                        image_checkpoint_spec(payload, image_match[1])
+                        plan["artifact_present"] = True
+                        weight_detail = (
+                            "已确认固定 checkpoint："
+                            + str(image_match[1]["checkpoint"])
+                        )
+                    except (FileNotFoundError, ValueError) as error:
+                        plan["artifact_present"] = False
+                        plan["automatic_launch"] = False
+                        plan["availability_label"] = "Drive 文件不完整"
+                        plan["availability_reason"] = str(error)
+                        weight_detail = str(error)
+
                 hardware = managed_comfy_hardware()
                 managed_adapter = video_match or image_match
+                hardware_ready = bool(hardware["supported"])
+                artifact_ready = plan.get("artifact_present") is not False
                 if managed_adapter:
                     status = {
-                        "detected": bool(hardware["supported"]),
-                        "automatic_launch": bool(hardware["supported"]),
+                        "detected": hardware_ready,
+                        "automatic_launch": hardware_ready and artifact_ready,
                         "detail": (
                             "managed ComfyUI; first run prepares it automatically"
-                            if hardware["supported"]
+                            if hardware_ready
                             else hardware["detail"]
                         ),
                     }
-                    if not hardware["supported"]:
+                    if artifact_ready and not hardware_ready:
                         plan["automatic_launch"] = False
                         plan["availability_label"] = "硬件不支持"
                         plan["availability_reason"] = hardware["detail"]
@@ -841,6 +867,7 @@ class Handler(BaseHTTPRequestHandler):
                         "drive_api_session": bool(DRIVE_SESSION.access_token),
                         "cache_mode": "drive-api",
                         "backend_status": status,
+                        "weight_detail": weight_detail,
                         "hardware_supported": (
                             bool(hardware["supported"]) if managed_adapter else None
                         ),
@@ -850,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
                         "video_adapter": (
                             {
                                 "id": video_match[0],
-                                "automatic_launch": bool(hardware["supported"]),
+                                "automatic_launch": hardware_ready and artifact_ready,
                             }
                             if video_match
                             else None
@@ -858,7 +885,7 @@ class Handler(BaseHTTPRequestHandler):
                         "image_adapter": (
                             {
                                 "id": image_match[0],
-                                "automatic_launch": bool(hardware["supported"]),
+                                "automatic_launch": hardware_ready and artifact_ready,
                             }
                             if image_match
                             else None
