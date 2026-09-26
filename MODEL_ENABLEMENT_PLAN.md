@@ -151,6 +151,10 @@
 - 第四阶段审计：当前 canonical AI-Model-Vault 及可检索 Drive 中未发现 GOT-OCR、Qwen Embedding、Qwen Reranker、Chronos / TimesFM 的真实权重副本；对应工作区继续保持“需要权重/适配器”。
 - 第五阶段（PR #18）：managed ComfyUI 增加 nvidia-smi、CUDA、VRAM 和磁盘预检；无 NVIDIA/CUDA 时明确显示“需要远程 NVIDIA Runtime”，避免先下载大模型再失败。
 
+- 第二阶段继续推进：Qwen-Image 2.1 GGUF 已完成链接式 Drive 扫描、三文件完整性校验、ComfyUI-GGUF 自动准备、固定 API 工作流和网页参数默认值；不复制现有约 14 GB 权重。
+- 路由修正：包含 `.gguf` 的图像包按 `model_metadata.json` / 专用适配器路由到 ComfyUI，不再仅凭扩展名误判成 llama.cpp 聊天模型。
+- 仓库迁移：权威 GitHub 地址已变更为 `Jvust/Model`；Runtime 同时允许新旧 Pages Origin 以兼容迁移期间访问。
+
 ## 完成定义
 
 当用户在模型卡片上点击“使用模型”后，网页能自动完成检查、按需读取缓存、启动正确后端、提交任务并返回结果；如果模型当前不能运行，网页能在点击前准确说明缺少的权重、适配器或硬件条件。
