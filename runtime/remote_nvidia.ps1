@@ -95,6 +95,12 @@ if (-not $tailscale) {
 }
 
 $config = Read-Config
+if (
+    -not $PSBoundParameters.ContainsKey("ServePort") -and
+    $config.remoteServePort
+) {
+    $ServePort = [int]$config.remoteServePort
+}
 
 if ($Disable) {
     & $tailscale serve --https=$ServePort off | Out-Null
