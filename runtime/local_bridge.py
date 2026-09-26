@@ -685,6 +685,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, payload)
             return
 
+        if path == "/v1/models/cache":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            self._json(200, {"ok": True, "entries": DRIVE_CACHE.list_entries()})
+            return
+
         if path == "/v1/video/status":
             if not self._origin_allowed():
                 self._json(403, {"error": "Origin not allowed."})
@@ -778,6 +785,25 @@ class Handler(BaseHTTPRequestHandler):
                 spec = DriveFileSpec.from_payload(payload)
                 info = DRIVE_CACHE.describe(spec)
                 self._json(200, {"ok": True, "cache": info})
+                return
+
+            if path == "/v1/models/cache/delete":
+                file_id = str(payload.get("drive_file_id") or "").strip()
+                if not file_id:
+                    raise ValueError("drive_file_id is required.")
+                snapshot = STATE.snapshot()
+                if snapshot.get("source_drive_file_id") == file_id:
+                    self._json(409, {"error": "Stop the active model before deleting its cache."})
+                    return
+                self._json(200, {"ok": True, "result": DRIVE_CACHE.delete_file_id(file_id)})
+                return
+
+            if path == "/v1/models/cache/clear":
+                snapshot = STATE.snapshot()
+                if snapshot.get("source_drive_file_id") and snapshot.get("running"):
+                    self._json(409, {"error": "Stop the active model before clearing the cache."})
+                    return
+                self._json(200, {"ok": True, "result": DRIVE_CACHE.delete_all()})
                 return
 
             if path == "/v1/models/inspect":
