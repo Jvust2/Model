@@ -137,6 +137,23 @@
     ).replace(/\/$/, "");
   }
 
+  function imageDefaults(model) {
+    const hay = [
+      model && model.id,
+      model && model.name,
+      model && model.repo,
+      model && model.packagePath
+    ].filter(Boolean).join(" ").toLowerCase();
+    if (
+      hay.includes("qwen_image_2_1_int8") ||
+      hay.includes("qwen-image-2.1") ||
+      hay.includes("qwen image 2.1")
+    ) {
+      return { width: 768, height: 768, steps: 20, cfg: 1.0 };
+    }
+    return { width: 1024, height: 1024, steps: 28, cfg: 5.0 };
+  }
+
   function modelFiles(model) {
     return (Array.isArray(model && model.files) ? model.files : [])
       .map(file => ({
@@ -259,6 +276,7 @@
       if (window.ModelApp && typeof window.ModelApp.syncRuntimeDriveSession === "function") {
         await window.ModelApp.syncRuntimeDriveSession();
       }
+      const defaults = imageDefaults(selectedImageModel);
       const payload = {
         model_id: selectedImageModel.id,
         name: selectedImageModel.name,
@@ -266,10 +284,10 @@
         files: modelFiles(selectedImageModel),
         prompt,
         negative_prompt: String(values.get("negative") || "").trim(),
-        width: Number(values.get("width") || 1024),
-        height: Number(values.get("height") || 1024),
-        steps: Number(values.get("steps") || 28),
-        cfg: Number(values.get("cfg") || 5)
+        width: Number(values.get("width") || defaults.width),
+        height: Number(values.get("height") || defaults.height),
+        steps: Number(values.get("steps") || defaults.steps),
+        cfg: Number(values.get("cfg") || defaults.cfg)
       };
       const seed = String(values.get("seed") || "").trim();
       if (seed) payload.seed = Number(seed);
@@ -357,6 +375,20 @@
       form.appendChild(field);
     });
 
+    if (item.id === "image-generation" && selectedImageModel) {
+      const defaults = imageDefaults(selectedImageModel);
+      const defaultsById = {
+        width: defaults.width,
+        height: defaults.height,
+        steps: defaults.steps,
+        cfg: defaults.cfg
+      };
+      Object.entries(defaultsById).forEach(([id, value]) => {
+        const input = form.querySelector('[name="' + id + '"]');
+        if (input) input.value = String(value);
+      });
+    }
+
     const actions = document.createElement("div");
     actions.className = "workspace-actions";
     const run = document.createElement("button");
@@ -406,7 +438,14 @@
     status.className = "workspace-status";
     status.textContent = item.id === "image-generation"
       ? (selectedImageModel
-          ? "已选择 " + selectedImageModel.name + "。填写提示词后可直接生成。"
+          ? (
+              "已选择 " + selectedImageModel.name +
+              "。当前默认参数：" +
+              imageDefaults(selectedImageModel).width + "×" +
+              imageDefaults(selectedImageModel).height + " / " +
+              imageDefaults(selectedImageModel).steps + " steps / CFG " +
+              imageDefaults(selectedImageModel).cfg
+            )
           : "请先从模型库选择一个已经接入适配器并通过硬件检查的图像模型。")
       : "点击“检查本机后端”获取 Runtime 检测结果。";
     check.addEventListener("click", async () => {
