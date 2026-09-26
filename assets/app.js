@@ -7,7 +7,6 @@
   let runtimeState = null;
   let backendState = null;
   let modelCapabilities = window.MODEL_CAPABILITIES || {};
-  let modelCapabilities = {};
   let runtimePollTimer = null;
   let runtimeReconnectTimer = null;
   let chatBusy = false;
@@ -175,15 +174,6 @@
         backendState = null;
       }
       await loadModelCapabilities();
-      try {
-        const capabilitiesResponse = await fetch(runtimeUrl("/v1/models/capabilities"), { cache: "no-store" });
-        if (capabilitiesResponse.ok) {
-          const capabilities = await capabilitiesResponse.json();
-          modelCapabilities = Object.assign({}, modelCapabilities, Object.fromEntries(
-            (capabilities.models || []).map(item => [item.model_id, item])
-          ));
-        }
-      } catch (_) {}
       if (accessToken) {
         try {
           await syncRuntimeDriveSession();
@@ -437,11 +427,6 @@
     } finally {
       button.disabled = false;
     }
-  }
-
-  function capabilityInfo(model) {
-    const key = String(model.id || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-    return modelCapabilities[key] || null;
   }
 
   function backendInfo(model) {
@@ -749,14 +734,15 @@
       const response = await fetch(runtimeUrl("/v1/models/capabilities"), { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      modelCapabilities = Object.fromEntries((data.models || []).map(item => [item.model_id, item]));
+      modelCapabilities = Object.assign({}, modelCapabilities, Object.fromEntries((data.models || []).map(item => [item.model_id, item])));
     } catch (_) {
-      modelCapabilities = {};
+      modelCapabilities = window.MODEL_CAPABILITIES || {};
     }
   }
 
   function capabilityInfo(model) {
-    return modelCapabilities[String(model.id || "").toLowerCase()] || null;
+    const key = String(model.id || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return modelCapabilities[key] || null;
   }
 
   function planText(plan) {
@@ -808,14 +794,7 @@
         plan.availability_reason = capability.reason;
       }
       $("runtimeLog").textContent = planText(plan);
-      setStatus(
-        model.name +
-          " · " +
-          model.backend +
-          (plan.backend_status && plan.backend_status.detected
-            ? " 后端已检测"
-            : " 需要准备后端")
-      );
+      setStatus(model.name + " · " + (plan.availability_label || model.backend));
     } catch (error) {
       showError(error);
       setStatus("运行方案分析失败");
