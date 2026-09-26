@@ -120,6 +120,13 @@ def model_plan(backend: str, category: str | None = None, model_id: str | None =
     }.get(category, "generic")
 
     capability = capability_for(model_id=model_id, name=name, category=category)
+    if backend_name == "llama.cpp" and not str(model_id or "").strip() and not str(name or "").strip():
+        capability = {
+            "availability": "automatic",
+            "label": "可直接使用",
+            "adapter": "llama.cpp",
+            "reason": "GGUF 聊天后端已接入。",
+        }
     automatic = capability["availability"] == "automatic"
     return {
         "backend": backend_name or "unknown",
