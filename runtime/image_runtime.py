@@ -94,30 +94,22 @@ def checkpoint_spec(payload: dict, adapter: dict) -> DriveFileSpec:
         raise ValueError("图像任务缺少 Drive 模型文件列表；请重新扫描 AI-Model-Vault。")
 
     expected = str(adapter["checkpoint"]).lower()
-    candidates = []
     for raw in files:
         if not isinstance(raw, dict):
             continue
         name = str(raw.get("file_name") or raw.get("name") or "").strip()
-        if name.lower() == expected:
-            spec = DriveFileSpec.from_payload(_normalize_file_payload(raw))
-            if spec.size is not None and spec.size < int(adapter["min_bytes"]):
-                raise ValueError("Pony checkpoint 文件大小异常，Drive 文件可能不完整。")
-            return spec
-        if name.lower().endswith(".safetensors"):
-            try:
-                spec = DriveFileSpec.from_payload(_normalize_file_payload(raw))
-            except ValueError:
-                continue
-            candidates.append(spec)
-
-    if candidates:
-        largest = max(candidates, key=lambda spec: int(spec.size or 0))
-        if int(largest.size or 0) >= int(adapter["min_bytes"]):
-            return largest
+        if name.lower() != expected:
+            continue
+        spec = DriveFileSpec.from_payload(_normalize_file_payload(raw))
+        if spec.size is None:
+            raise ValueError("Pony checkpoint 缺少 Drive 文件大小，无法确认完整性。")
+        if spec.size < int(adapter["min_bytes"]):
+            raise ValueError("Pony checkpoint 文件大小异常，Drive 文件可能不完整。")
+        return spec
 
     raise FileNotFoundError(
-        f"Drive 模型包中没有找到完整 checkpoint：{adapter['checkpoint']}"
+        f"Drive 模型包中没有找到固定 checkpoint：{adapter['checkpoint']}。"
+        "不会仅凭 .safetensors 扩展名选择其他文件。"
     )
 
 
