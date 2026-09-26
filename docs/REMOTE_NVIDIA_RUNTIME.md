@@ -22,7 +22,7 @@ Remote mode uses **Tailscale Serve**, not Tailscale Funnel.
 
     Model website on client
           ↓ HTTPS inside tailnet
-    https://<nvidia-node>.<tailnet>.ts.net
+    https://<nvidia-node>.<tailnet>.ts.net:8443
           ↓ Tailscale Serve
     http://127.0.0.1:8765
           ↓
@@ -95,7 +95,7 @@ The script:
 4. writes `remoteEnabled`, `remoteUrl`, `remoteMode` and `remoteToken` into the current-user Runtime config;
 5. runs:
 
-       tailscale serve --bg --yes http://127.0.0.1:8765
+       tailscale serve --bg --yes --https=8443 http://127.0.0.1:8765
 
 6. restarts the localhost Runtime so it receives `MODEL_REMOTE_TOKEN`;
 7. prints the HTTPS Runtime URL and token.
@@ -109,7 +109,7 @@ On the client:
 1. connect the client to the same tailnet;
 2. open the Model website;
 3. expand **高级诊断**;
-4. set **Runtime Bridge** to the printed `https://...ts.net` URL;
+4. set **Runtime Bridge** to the printed `https://...ts.net:8443` URL;
 5. enter the printed Runtime token;
 6. click **重新连接**.
 
@@ -121,7 +121,7 @@ On the NVIDIA host run:
 
     runtime\Disable-Remote-Nvidia.cmd
 
-This runs `tailscale serve off`, clears the saved remote token/URL state, and restarts Model Runtime in localhost-only unauthenticated mode.
+This disables only the dedicated Model Serve listener with `tailscale serve --https=8443 off`, clears the saved remote token/URL state, and restarts Model Runtime in localhost-only unauthenticated mode. Using a dedicated port avoids disturbing unrelated Serve configuration on the same Tailscale node.
 
 ## Rotate the Runtime token
 
