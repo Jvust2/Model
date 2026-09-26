@@ -86,6 +86,9 @@ function Save-Config([string]$llamaPath, [string]$cachePath) {
         loadMode = "none"
         readyWarnSeconds = 300
         installMode = "tray-autostart"
+        remoteEnabled = $false
+        remoteUrl = ""
+        remoteToken = ""
     }
     $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
 }
