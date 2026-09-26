@@ -63,8 +63,15 @@
         <details class="runtime-advanced">
           <summary>高级诊断</summary>
           <div class="field">
-            <label for="runtimeUrl">Local Runtime Bridge</label>
+            <label for="runtimeUrl">Runtime Bridge（本机或远程 HTTPS）</label>
             <input id="runtimeUrl" value="http://127.0.0.1:8765" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="runtimeToken">远程 Runtime 令牌（仅当前浏览器会话保存）</label>
+            <input id="runtimeToken" type="password" value="" placeholder="本机留空；远程 NVIDIA Runtime 填启用脚本输出的令牌" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="note">
+            远程模式只接受 HTTPS 地址；推荐使用 Tailscale Serve。令牌只写入 sessionStorage，关闭浏览器会话后失效。
           </div>
           <pre id="runtimeLog" class="runtime-log">等待 Runtime 状态…</pre>
         </details>
@@ -164,8 +171,8 @@
   <script src="./assets/model-index.js?v=13"></script>
   <script src="./assets/model-capabilities.js?v=3"></script>
   <script src="./assets/drive-client.js?v=10"></script>
-  <script src="./assets/app.js?v=16"></script>
-  <script src="./assets/workspaces.js?v=3"></script>
-  <script src="./assets/cache-ui.js?v=1"></script>
+  <script src="./assets/app.js?v=17"></script>
+  <script src="./assets/workspaces.js?v=4"></script>
+  <script src="./assets/cache-ui.js?v=2"></script>
 </body>
 </html>
