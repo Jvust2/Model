@@ -90,7 +90,7 @@ def backend_status(llama_server_path: str | None = None) -> dict:
 
 
 def model_plan(backend: str, category: str | None = None, model_id: str | None = None, name: str | None = None) -> dict:
-    name = str(backend or "").strip()
+    backend_name = str(backend or "").strip()
     category = str(category or "unknown").strip() or "unknown"
 
     requirements = {
@@ -101,7 +101,7 @@ def model_plan(backend: str, category: str | None = None, model_id: str | None =
         "PyTorch": ["Python", "torch", "model architecture/loader code"],
         "ONNX Runtime": ["Python", "onnxruntime", "task-specific preprocessing"],
         "TFLite": ["TensorFlow/TFLite runtime", "task-specific preprocessing"],
-    }.get(name, ["model-specific runtime adapter"])
+    }.get(backend_name, ["model-specific runtime adapter"])
 
     workspace = {
         "llm": "chat",
@@ -122,7 +122,7 @@ def model_plan(backend: str, category: str | None = None, model_id: str | None =
     capability = capability_for(model_id=model_id, name=name, category=category)
     automatic = capability["availability"] == "automatic"
     return {
-        "backend": name or "unknown",
+        "backend": backend_name or "unknown",
         "category": category,
         "workspace": workspace,
         "automatic_launch": automatic,
