@@ -1,7 +1,9 @@
 param(
     [switch]$Disable,
     [switch]$RotateToken,
-    [switch]$SelfTest
+    [switch]$SelfTest,
+    [ValidateRange(1, 65535)]
+    [int]$ServePort = 8443
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,7 +97,7 @@ if (-not $tailscale) {
 $config = Read-Config
 
 if ($Disable) {
-    & $tailscale serve off | Out-Null
+    & $tailscale serve --https=$ServePort off | Out-Null
     Set-ConfigProperty $config "remoteEnabled" $false
     Set-ConfigProperty $config "remoteUrl" ""
     Set-ConfigProperty $config "remoteToken" ""
@@ -123,17 +125,22 @@ if ($RotateToken -or [string]::IsNullOrWhiteSpace($token)) {
     $token = New-RemoteToken
 }
 
-$remoteUrl = "https://$dnsName"
+$remoteUrl = if ($ServePort -eq 443) {
+    "https://$dnsName"
+} else {
+    "https://$dnsName`:$ServePort"
+}
 
 Set-ConfigProperty $config "remoteEnabled" $true
 Set-ConfigProperty $config "remoteUrl" $remoteUrl
 Set-ConfigProperty $config "remoteToken" $token
 Set-ConfigProperty $config "remoteMode" "tailscale-serve"
+Set-ConfigProperty $config "remoteServePort" $ServePort
 Save-Config $config
 
 # Tailscale Serve keeps Model Runtime bound to localhost and publishes only
 # through the private tailnet HTTPS endpoint. This is Serve, never Funnel.
-& $tailscale serve --bg --yes http://127.0.0.1:8765
+& $tailscale serve --bg --yes --https=$ServePort http://127.0.0.1:8765
 if ($LASTEXITCODE -ne 0) {
     throw "Tailscale Serve 启用失败。"
 }
