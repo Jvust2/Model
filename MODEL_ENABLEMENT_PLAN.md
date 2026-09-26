@@ -146,6 +146,11 @@
 - 第二阶段：FLUX.2 Klein 4B FP8 继续保持“需要适配器”，因为当前 Drive 只有 FP8 主权重，companion components 尚未完整，不允许仅凭 .safetensors 扩展名启用。
 - 后续优先级保持不变：补一个真实小型 GGUF → 专用任务模型 → 远程 NVIDIA Runtime → 更多模型家族。
 
+- 第三阶段前置：已建立 llm / reasoning / code / multimodal / ocr / rag / timeseries / novel Vault 分类目录；当前仍未发现聊天用 GGUF，因此不把任何聊天登记项标记为可启动。
+- 第三阶段前置（PR #18）：GGUF 运行方案与启动接口增加缓存磁盘、可用内存和 CPU 线程检查；Drive 下载按剩余字节 + 2 GB 安全余量做启动前磁盘预检。
+- 第四阶段审计：当前 canonical AI-Model-Vault 及可检索 Drive 中未发现 GOT-OCR、Qwen Embedding、Qwen Reranker、Chronos / TimesFM 的真实权重副本；对应工作区继续保持“需要权重/适配器”。
+- 第五阶段（PR #18）：managed ComfyUI 增加 nvidia-smi、CUDA、VRAM 和磁盘预检；无 NVIDIA/CUDA 时明确显示“需要远程 NVIDIA Runtime”，避免先下载大模型再失败。
+
 ## 完成定义
 
 当用户在模型卡片上点击“使用模型”后，网页能自动完成检查、按需读取缓存、启动正确后端、提交任务并返回结果；如果模型当前不能运行，网页能在点击前准确说明缺少的权重、适配器或硬件条件。
