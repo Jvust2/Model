@@ -6,7 +6,7 @@
   let runtimeBase = "";
   let runtimeState = null;
   let backendState = null;
-  let modelCapabilities = {};
+  let modelCapabilities = window.MODEL_CAPABILITIES || {};
   let runtimePollTimer = null;
   let runtimeReconnectTimer = null;
   let chatBusy = false;
@@ -734,9 +734,9 @@
       const response = await fetch(runtimeUrl("/v1/models/capabilities"), { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      modelCapabilities = Object.fromEntries((data.models || []).map(item => [item.model_id, item]));
+      modelCapabilities = Object.assign({}, modelCapabilities, Object.fromEntries((data.models || []).map(item => [item.model_id, item])));
     } catch (_) {
-      modelCapabilities = {};
+      modelCapabilities = window.MODEL_CAPABILITIES || {};
     }
   }
 
