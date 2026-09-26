@@ -1,61 +1,15 @@
-# Windows one-click launcher
+# Windows Runtime installation
 
-## Goal
+Download the latest successful `main` artifact from the [Runtime package workflow](https://github.com/Jvust2/Model/actions/workflows/runtime-package-drive-api.yml). Extract it, then double-click `runtime\Install.cmd`.
 
-Normal use:
+The artifact includes `ModelRuntime.exe`; the source tree does not. System Python is not required for the packaged Runtime. On first install, choose `llama-server.exe` if it is not found automatically. The installer enables the tray Runtime for the current Windows user and opens the website.
 
-1. double-click `runtime/Model.cmd`;
-2. choose `llama-server.exe` on first run;
-3. the localhost Runtime starts;
-4. the Model website opens;
-5. connect Google Drive in the website;
-6. choose a GGUF;
-7. Runtime downloads it directly from Drive API into local cache;
-8. llama.cpp starts;
-9. chat on the same page.
+The default model cache is `D:\Model`. GGUF downloads and managed video/ComfyUI files stay there until explicitly removed. Google Drive remains the source of truth, and its access token is kept in Runtime memory only.
 
-Google Drive for desktop is not required.
+For manual diagnostics, run `runtime\Model.cmd` from the extracted package. To change the llama-server path, use `runtime\Model.cmd -ResetConfig`. To run without opening the browser, use `runtime\Model.cmd -NoBrowser`.
 
-## First run
+Configuration: `%LOCALAPPDATA%\JvustModel\runtime.json`
 
-Double-click:
+Logs: `%LOCALAPPDATA%\JvustModel\logs`
 
-    runtime\Model.cmd
-
-The packaged Runtime includes a standalone `ModelRuntime.exe`, so system Python is not required.
-
-The installer asks for only:
-
-- `llama-server.exe` when it cannot be found automatically
-
-Saved config:
-
-    %LOCALAPPDATA%\JvustModel\runtime.json
-
-Default cache:
-
-    %LOCALAPPDATA%\JvustModel\cache
-
-Logs:
-
-    %LOCALAPPDATA%\JvustModel\logs
-
-No OAuth token is stored in runtime.json.
-
-## Reset llama-server path
-
-    runtime\Model.cmd -ResetConfig
-
-## Force local website
-
-    runtime\Model.cmd -LocalSite
-
-## Do not open browser
-
-    runtime\Model.cmd -NoBrowser
-
-## Model download behavior
-
-The browser sends the current short-lived Drive access token to localhost Runtime memory. When a GGUF is launched, Runtime downloads or resumes it from Google Drive API.
-
-A complete local cache file is required before llama.cpp starts. This is a cache, not the canonical model store; Google Drive remains authoritative.
+Normal use after installation: open [Model](https://jvust2.github.io/Model/), connect Google Drive, select a supported model, and start it from the website. The Runtime downloads selected Drive files only when needed and reuses the persistent local cache.
