@@ -13,6 +13,13 @@ class BackendPlanTests(unittest.TestCase):
         self.assertEqual(plan["workspace"], "chat")
         self.assertTrue(plan["automatic_launch"])
 
+    def test_registered_gguf_without_vault_file_cannot_launch(self):
+        plan = backends.model_plan(
+            "llama.cpp", "llm", model_id="qwen3_14b_q6", artifact_present=False
+        )
+        self.assertFalse(plan["automatic_launch"])
+        self.assertEqual(plan["vault_snapshot"], "not_in_vault")
+
     def test_video_plan_selects_video_workspace(self):
         plan = backends.model_plan("ComfyUI", "video")
         self.assertEqual(plan["workspace"], "video-generation")
