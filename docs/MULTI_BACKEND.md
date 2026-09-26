@@ -49,6 +49,12 @@ Current routing:
 
 The backend target is selected from model_metadata.json first.
 
+## 网页按钮与实际状态
+
+模型库中的按钮按能力状态区分：已经有测试过的启动器才显示“使用模型”或“使用视频模型”；其他已发现权重的模型显示“查看运行方案”，用于查看本机后端、适配器和依赖状态。它不会自动把任意权重文件转换成通用工作流。
+
+ComfyUI 是图像和视频模型的执行引擎，但每个模型家族仍需要对应的节点、文本编码器、VAE、预处理器、采样参数和输出节点。视频首版已经为 Wan2.2 TI2V 5B 与 HunyuanVideo 1.5 固定了官方工作流；其他图像和视频模型仍需按模型家族接入工作流。Drive 中没有实际权重的登记项会显示“主库未发现文件”，不会提供启动按钮。
+
 ## What is runnable now
 
 ### Direct automatic launch
