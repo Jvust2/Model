@@ -22,7 +22,7 @@ def default_cache_root() -> Path:
         return Path(os.path.expandvars(os.path.expanduser(configured))).resolve()
 
     if os.name == "nt":
-        return Path(r"D:\\Model").resolve()
+        return Path(r"D:\Model").resolve()
 
     local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
     if local_app_data:
