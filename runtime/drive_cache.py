@@ -131,6 +131,81 @@ class DriveCache:
             "cache_file": final.name,
         }
 
+    def list_entries(self) -> list[dict]:
+        """Return persistent cache records without exposing local filesystem paths."""
+        entries = []
+        with self._lock:
+            for metadata_path in sorted(self.root.glob("*.json")):
+                try:
+                    data = json.loads(metadata_path.read_text(encoding="utf-8"))
+                    file_id = validate_drive_file_id(str(data.get("file_id") or ""))
+                    name = str(data.get("name") or "model.bin")
+                    final, partial, _ = self._paths(
+                        DriveFileSpec(
+                            file_id=file_id,
+                            name=name,
+                            size=int(data.get("size") or 0) or None,
+                            md5_checksum=data.get("md5_checksum"),
+                        )
+                    )
+                    entries.append(
+                        {
+                            "file_id": file_id,
+                            "name": name,
+                            "size": final.stat().st_size if final.exists() else 0,
+                            "expected_size": data.get("size"),
+                            "cached": final.exists(),
+                            "partial": partial.exists(),
+                            "updated_at": metadata_path.stat().st_mtime,
+                        }
+                    )
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    continue
+        return entries
+
+    def delete_file_id(self, file_id: str) -> dict:
+        """Delete one persistent cache record and any resumable partial file."""
+        target = validate_drive_file_id(file_id)
+        deleted = 0
+        removed = False
+        with self._lock:
+            for metadata_path in list(self.root.glob("*.json")):
+                try:
+                    data = json.loads(metadata_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if str(data.get("file_id") or "") != target:
+                    continue
+
+                name = str(data.get("name") or "model.bin")
+                spec = DriveFileSpec(
+                    file_id=target,
+                    name=name,
+                    size=int(data.get("size") or 0) or None,
+                    md5_checksum=data.get("md5_checksum"),
+                )
+                final, partial, metadata = self._paths(spec)
+                for candidate in (final, partial, metadata):
+                    try:
+                        if candidate.exists():
+                            if candidate.is_file():
+                                deleted += candidate.stat().st_size
+                            candidate.unlink()
+                            removed = True
+                    except OSError:
+                        pass
+        return {"file_id": target, "removed": removed, "deleted_bytes": deleted}
+
+    def delete_all(self) -> dict:
+        deleted = 0
+        removed = 0
+        for entry in self.list_entries():
+            result = self.delete_file_id(entry["file_id"])
+            if result["removed"]:
+                removed += 1
+                deleted += int(result["deleted_bytes"] or 0)
+        return {"removed": removed, "deleted_bytes": deleted}
+
     def download(
         self,
         spec: DriveFileSpec,
