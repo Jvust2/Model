@@ -8,7 +8,7 @@ $baseDir = Join-Path $env:LOCALAPPDATA "JvustModel"
 $appDir = Join-Path $baseDir "app"
 $configPath = Join-Path $baseDir "runtime.json"
 $logsDir = Join-Path $baseDir "logs"
-$cacheDir = Join-Path $baseDir "cache"
+$cacheDir = "D:\Model"
 $stdoutPath = Join-Path $logsDir "runtime.stdout.log"
 $stderrPath = Join-Path $logsDir "runtime.stderr.log"
 $trayPidPath = Join-Path $baseDir "tray.pid"
@@ -77,6 +77,9 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $config = Read-Config
+if ($config.cacheRoot) {
+    $cacheDir = [string]$config.cacheRoot
+}
 $bridgeProcess = $null
 $closing = $false
 $lastStart = [DateTime]::MinValue
