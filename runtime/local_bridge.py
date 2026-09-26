@@ -20,12 +20,32 @@ try:
     from .backends import backend_status, model_plan
     from .drive_cache import DriveCache, DriveFileSpec
     from .model_capabilities import all_capabilities
-    from .video_runtime import VideoRuntime, adapter_for
+    from .image_runtime import (
+        ImageRuntime,
+        adapter_for as image_adapter_for,
+        checkpoint_spec as image_checkpoint_spec,
+        managed_comfy_hardware,
+    )
+    from .video_runtime import (
+        VideoRuntime,
+        adapter_for as video_adapter_for,
+        nvidia_available,
+    )
 except ImportError:
     from backends import backend_status, model_plan
     from drive_cache import DriveCache, DriveFileSpec
     from model_capabilities import all_capabilities
-    from video_runtime import VideoRuntime, adapter_for
+    from image_runtime import (
+        ImageRuntime,
+        adapter_for as image_adapter_for,
+        checkpoint_spec as image_checkpoint_spec,
+        managed_comfy_hardware,
+    )
+    from video_runtime import (
+        VideoRuntime,
+        adapter_for as video_adapter_for,
+        nvidia_available,
+    )
 
 HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.environ.get("MODEL_BRIDGE_PORT", "8765"))
@@ -549,13 +569,15 @@ class RuntimeState:
 
 STATE = RuntimeState()
 VIDEO = VideoRuntime()
+IMAGE = ImageRuntime(VIDEO, DRIVE_CACHE, DRIVE_SESSION.get)
 atexit.register(STATE.stop)
+atexit.register(IMAGE.shutdown)
 atexit.register(VIDEO.shutdown)
 
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.9"
+    server_version = "DriveModelBridge/0.10"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -624,6 +646,10 @@ class Handler(BaseHTTPRequestHandler):
             ".webm": "video/webm",
             ".mkv": "video/x-matroska",
             ".gif": "image/gif",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
         }.get(suffix, "application/octet-stream")
 
         self.send_response(status)
@@ -657,7 +683,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 9})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 10})
             return
 
         if path == "/v1/backends":
@@ -681,7 +707,13 @@ class Handler(BaseHTTPRequestHandler):
                     "model_server_port": MODEL_SERVER_PORT,
                     "ready_warn_seconds": MODEL_READY_WARN_SECONDS,
                     "video": VIDEO.snapshot(),
-                    "runtime_version": 9,
+                    "image": IMAGE.snapshot(),
+                    "hardware": {
+                        "nvidia": nvidia_available(),
+                        "managed_comfy_supported": managed_comfy_hardware()["supported"],
+                        "managed_comfy_detail": managed_comfy_hardware()["detail"],
+                    },
+                    "runtime_version": 10,
                 }
             )
             self._json(200, payload)
@@ -699,6 +731,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(403, {"error": "Origin not allowed."})
                 return
             self._json(200, {"ok": True, "entries": DRIVE_CACHE.list_entries()})
+            return
+
+        if path == "/v1/image/status":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            self._json(200, IMAGE.snapshot())
+            return
+
+        if path == "/v1/image/file":
+            if not self._origin_allowed():
+                self._json(403, {"error": "Origin not allowed."})
+                return
+            query = parse_qs(urlparse(self.path).query)
+            job_id = str((query.get("job_id") or [""])[0])
+            try:
+                image_path = IMAGE.output_file(job_id)
+                self._serve_video_file(image_path)
+            except FileNotFoundError as error:
+                self._json(404, {"error": str(error)})
+            except ValueError as error:
+                self._json(400, {"error": str(error)})
             return
 
         if path == "/v1/video/status":
@@ -763,27 +817,77 @@ class Handler(BaseHTTPRequestHandler):
                         "detail": "unknown backend",
                     },
                 )
-                video_match = adapter_for(
-                    str(payload.get("name") or ""),
-                    str(payload.get("model_id") or ""),
+                name = str(payload.get("name") or "")
+                model_id = str(payload.get("model_id") or "")
+                package_path = str(payload.get("package_path") or "")
+                video_match = video_adapter_for(name, model_id)
+                image_match = image_adapter_for(name, model_id, package_path)
+                weight_detail = (
+                    "Drive 已扫描到模型包"
+                    if plan.get("artifact_present") is True
+                    else "Drive 未确认可用模型权重"
+                    if plan.get("artifact_present") is False
+                    else "权重状态未知"
                 )
-                if video_match:
+                if image_match:
+                    try:
+                        image_checkpoint_spec(payload, image_match[1])
+                        plan["artifact_present"] = True
+                        weight_detail = (
+                            "已确认固定 checkpoint："
+                            + str(image_match[1]["checkpoint"])
+                        )
+                    except (FileNotFoundError, ValueError) as error:
+                        plan["artifact_present"] = False
+                        plan["automatic_launch"] = False
+                        plan["availability_label"] = "Drive 文件不完整"
+                        plan["availability_reason"] = str(error)
+                        weight_detail = str(error)
+
+                hardware = managed_comfy_hardware()
+                managed_adapter = video_match or image_match
+                hardware_ready = bool(hardware["supported"])
+                artifact_ready = plan.get("artifact_present") is not False
+                if managed_adapter:
                     status = {
-                        "detected": True,
-                        "automatic_launch": True,
-                        "detail": "managed ComfyUI; first run prepares it automatically",
+                        "detected": hardware_ready,
+                        "automatic_launch": hardware_ready and artifact_ready,
+                        "detail": (
+                            "managed ComfyUI; first run prepares it automatically"
+                            if hardware_ready
+                            else hardware["detail"]
+                        ),
                     }
+                    if artifact_ready and not hardware_ready:
+                        plan["automatic_launch"] = False
+                        plan["availability_label"] = "硬件不支持"
+                        plan["availability_reason"] = hardware["detail"]
                 plan.update(
                     {
                         "drive_api_session": bool(DRIVE_SESSION.access_token),
                         "cache_mode": "drive-api",
                         "backend_status": status,
+                        "weight_detail": weight_detail,
+                        "hardware_supported": (
+                            bool(hardware["supported"]) if managed_adapter else None
+                        ),
+                        "hardware_detail": (
+                            hardware["detail"] if managed_adapter else None
+                        ),
                         "video_adapter": (
                             {
                                 "id": video_match[0],
-                                "automatic_launch": True,
+                                "automatic_launch": hardware_ready and artifact_ready,
                             }
                             if video_match
+                            else None
+                        ),
+                        "image_adapter": (
+                            {
+                                "id": image_match[0],
+                                "automatic_launch": hardware_ready and artifact_ready,
+                            }
+                            if image_match
                             else None
                         ),
                     }
@@ -865,7 +969,20 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/v1/image/generate":
+                if VIDEO.snapshot().get("running"):
+                    raise RuntimeError("已有视频任务正在使用 ComfyUI，请先等待或停止视频任务。")
+                result = IMAGE.start(payload)
+                self._json(202, {"ok": True, "image": result})
+                return
+
+            if path == "/v1/image/stop":
+                self._json(200, {"ok": True, "image": IMAGE.stop()})
+                return
+
             if path == "/v1/video/generate":
+                if IMAGE.snapshot().get("running"):
+                    raise RuntimeError("已有图像任务正在使用 ComfyUI，请先等待或停止图像任务。")
                 result = VIDEO.start(payload)
                 self._json(202, {"ok": True, "video": result})
                 return
@@ -890,7 +1007,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.9")
+    print("Drive Model Local Runtime v0.10")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive source: Google Drive API (no desktop mount required)")
     print("Cache root:", DRIVE_CACHE.root)
@@ -908,6 +1025,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        IMAGE.shutdown()
         VIDEO.shutdown()
         STATE.stop()
         server.server_close()

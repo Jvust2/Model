@@ -91,7 +91,7 @@ Large models still need enough local disk space for the cache. The desktop Drive
 
 模型登记、Drive 文件和运行适配器是三个不同状态。网页会展示登记表中的全部模型，但只有同时满足“Drive 主库有权重”和“对应运行适配器已接通”的模型才会出现启动入口。
 
-目前已经接通网页自动运行的模型是 Wan2.2 TI2V 5B 和 HunyuanVideo 1.5 视频工作流，以及 Drive 中实际存在 GGUF 文件时的 llama.cpp 聊天链路。图像、OCR、Embedding、Reranker 和时间序列模型会显示后端检测与运行方案，直到对应的模型家族工作流或专用适配器接通。
+目前已经接通网页自动运行的模型包括 Pony Diffusion V6 XL 图像工作流、Wan2.2 TI2V 5B 和 HunyuanVideo 1.5 视频工作流，以及 Drive 中实际存在 GGUF 文件时的 llama.cpp 聊天链路。OCR、Embedding、Reranker、时间序列及尚未完成依赖验证的图像模型继续只显示运行方案。
 
 模型卡片上的“查看运行方案”只会读取本机后端和模型状态，不会把任意 .safetensors、.pth 或 .ckpt 文件假设成可以直接启动的模型。这样可以避免下载大量文件后才发现缺少 VAE、文本编码器、预处理器或工作流。
 
@@ -109,12 +109,13 @@ Current targets:
 Automatic web adapters now include:
 
 - GGUF → Drive API cache → llama.cpp → web chat.
+- Pony Diffusion V6 XL → Drive API cache → managed ComfyUI SDXL workflow → web image workspace.
 - Wan2.2 TI2V 5B → managed ComfyUI → web video workspace.
 - HunyuanVideo 1.5 T2V → managed ComfyUI → web video workspace.
 
 For the video adapters, the Drive package remains the catalog/model identity, while Runtime caches the official ComfyUI-compatible backend artifacts required by the selected workflow. This is necessary because the Drive-native training/inference package layout is not identical to ComfyUI's repackaged model layout.
 
-The v0.9 automatic video path currently targets NVIDIA Windows systems.
+The managed ComfyUI image/video path currently targets NVIDIA Windows systems. Runtime checks hardware before exposing the direct-use action; unsupported machines stay on the run-plan path and do not start a large model download.
 
 First video use may download:
 
@@ -124,6 +125,16 @@ First video use may download:
 Those files are cached under `D:\Model\video` by default and reused later. Set `MODEL_VIDEO_ROOT` to override the video cache only.
 
 See `docs/MULTI_BACKEND.md` for the remaining family adapters.
+
+## Image workspace
+
+Select **Pony Diffusion V6 XL** and click **使用图像模型**. Runtime validates the scanned Drive checkpoint, downloads/resumes it into the persistent `D:\\Model` cache, prepares managed ComfyUI, submits the fixed SDXL workflow and streams the generated image back to the webpage.
+
+Current direct image adapter:
+
+- Pony Diffusion V6 XL — 1024×1024 default, 28 steps, CFG 5, CLIP skip 2.
+
+FLUX.2 Klein 4B FP8 remains **adapter required** until its complete companion-component/runtime path is verified; a `.safetensors` file alone is not treated as runnable.
 
 ## Video workspace
 
@@ -155,10 +166,10 @@ Production:
 
 - 本机聊天：GGUF / llama.cpp
 - 本机视频：Wan2.2、HunyuanVideo
-- 图像生成：ComfyUI / Diffusers 运行方案
+- 图像生成：Pony Diffusion V6 XL 已接通；其他模型继续显示 ComfyUI / Diffusers 运行方案
 - 图像编辑：局部重绘、扩图、放大
 - 视觉 / OCR：Transformers 运行方案
 - 向量检索：Embedding / Rerank 知识库入口
 - 时序预测：PyTorch 预测入口
 
-图像、视觉、检索和时序工作区会先检查本机后端，并保留模型家族适配边界；模型库卡片仍是模型包与 Drive 元数据的唯一来源。
+图像、视觉、检索和时序工作区会先检查本机后端，并保留模型家族适配边界；Pony 图像工作区已经能够提交真实任务并回传结果。模型库卡片仍是模型包与 Drive 元数据的唯一来源。

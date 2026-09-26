@@ -11,7 +11,11 @@
       fields: [
         ["prompt", "提示词", "描述主体、构图、光线和风格…", "textarea"],
         ["negative", "负面提示词", "不希望出现的内容（可选）", "textarea"],
-        ["size", "画布尺寸", "1024×1024", "text"]
+        ["width", "宽度", "1024", "text"],
+        ["height", "高度", "1024", "text"],
+        ["steps", "Steps", "28", "text"],
+        ["cfg", "CFG", "5", "text"],
+        ["seed", "Seed", "留空为随机", "text"]
       ],
       backend: "ComfyUI"
     },
@@ -93,6 +97,7 @@
     .workspace-side h3 { margin: 0 0 10px; font-size: 13px; }
     .workspace-status { min-height: 70px; color: var(--muted); font-size: 11px; white-space: pre-wrap; }
     .workspace-backend { color: var(--blue); font-size: 11px; margin-bottom: 12px; }
+    .workspace-image-preview { width: 100%; max-height: 560px; object-fit: contain; border-radius: 10px; margin-top: 14px; border: 1px solid var(--line); background: #050912; }
     @media (max-width: 800px) { .workspace-card { grid-template-columns: 1fr; } }
   `;
   const style = document.createElement("style");
@@ -118,6 +123,191 @@
   const content = root.querySelector(".workspace-content");
   let active = workspaces[0].id;
   let backendState = null;
+  let selectedImageModel = null;
+  let imagePollTimer = null;
+
+  function runtimeBase() {
+    if (window.ModelApp && typeof window.ModelApp.runtimeBase === "function") {
+      return String(window.ModelApp.runtimeBase() || "http://127.0.0.1:8765").replace(/\/$/, "");
+    }
+    return String(
+      localStorage.getItem("model_runtime_base") ||
+      (window.MODEL_CONFIG && window.MODEL_CONFIG.runtimeBase) ||
+      "http://127.0.0.1:8765"
+    ).replace(/\/$/, "");
+  }
+
+  function modelFiles(model) {
+    return (Array.isArray(model && model.files) ? model.files : [])
+      .map(file => ({
+        drive_file_id: file.id,
+        file_name: file.name,
+        size: Number(file.size || 0) || null,
+        md5_checksum: file.md5Checksum || file.md5_checksum || "",
+        resource_key: file.resourceKey || file.resource_key || ""
+      }))
+      .filter(file => file.drive_file_id && file.file_name);
+  }
+
+  function imagePhaseText(state) {
+    const phase = String(state && state.phase || "idle");
+    const detail = String(state && state.detail || "");
+    const labels = {
+      idle: "等待任务",
+      starting: "正在准备图像任务",
+      preparing_comfyui: "正在准备 ComfyUI",
+      downloading_model: "正在从 Drive 准备模型缓存",
+      building_workflow: "正在构建 Pony SDXL 工作流",
+      queued: "任务已提交",
+      generating: "正在生成图像",
+      complete: "图像生成完成",
+      failed: "图像任务失败",
+      cancelled: "图像任务已取消"
+    };
+    return (labels[phase] || phase) + (detail ? " · " + detail : "");
+  }
+
+  function stopImagePolling() {
+    if (imagePollTimer) {
+      clearTimeout(imagePollTimer);
+      imagePollTimer = null;
+    }
+  }
+
+  function imagePreview() {
+    const side = root.querySelector(".workspace-side");
+    if (!side) return null;
+    let preview = side.querySelector(".workspace-image-preview");
+    if (!preview) {
+      preview = document.createElement("img");
+      preview.className = "workspace-image-preview";
+      preview.alt = "模型生成结果";
+      preview.hidden = true;
+      side.appendChild(preview);
+    }
+    return preview;
+  }
+
+  async function pollImage(status, form) {
+    stopImagePolling();
+    const run = form.querySelector('button[type="submit"]');
+    const stop = form.querySelector("[data-stop-image]");
+    try {
+      const response = await fetch(runtimeBase() + "/v1/image/status", { cache: "no-store" });
+      const state = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(state.error || "无法读取图像任务状态。");
+      let text = imagePhaseText(state);
+      if (state.current_file) text += "\n文件：" + state.current_file;
+      if (typeof state.download_progress === "number") {
+        text += "\n缓存进度：" + Math.floor(state.download_progress * 100) + "%";
+      }
+      status.textContent = text;
+      if (run) run.disabled = !!state.running;
+      if (stop) stop.disabled = !state.running;
+
+      if (state.phase === "complete" && state.job_id) {
+        const preview = imagePreview();
+        if (preview) {
+          preview.src = runtimeBase() + "/v1/image/file?job_id=" + encodeURIComponent(state.job_id) + "&t=" + Date.now();
+          preview.hidden = false;
+        }
+        if (run) run.disabled = false;
+        if (stop) stop.disabled = true;
+        return;
+      }
+      if (state.phase === "failed") {
+        status.textContent = imagePhaseText(state) + (state.error ? "\n" + state.error : "");
+        if (run) run.disabled = false;
+        if (stop) stop.disabled = true;
+        return;
+      }
+      if (state.phase === "cancelled") {
+        if (run) run.disabled = false;
+        if (stop) stop.disabled = true;
+        return;
+      }
+      if (state.running) {
+        imagePollTimer = setTimeout(() => pollImage(status, form), 1200);
+      }
+    } catch (error) {
+      status.textContent = "无法读取图像任务：" + String(error.message || error);
+      if (run) run.disabled = false;
+      if (stop) stop.disabled = true;
+    }
+  }
+
+  async function runImageTask(form, status) {
+    if (!selectedImageModel) {
+      status.textContent = "请先从模型库点击“使用图像模型”。";
+      return;
+    }
+    const values = new FormData(form);
+    const prompt = String(values.get("prompt") || "").trim();
+    if (!prompt) {
+      status.textContent = "请先填写图像提示词。";
+      return;
+    }
+    const run = form.querySelector('button[type="submit"]');
+    const stop = form.querySelector("[data-stop-image]");
+    if (run) run.disabled = true;
+    if (stop) stop.disabled = false;
+    const preview = imagePreview();
+    if (preview) preview.hidden = true;
+
+    try {
+      status.textContent = "正在同步 Drive 会话并检查 Runtime…";
+      if (window.ModelApp && typeof window.ModelApp.syncRuntimeDriveSession === "function") {
+        await window.ModelApp.syncRuntimeDriveSession();
+      }
+      const payload = {
+        model_id: selectedImageModel.id,
+        name: selectedImageModel.name,
+        package_path: selectedImageModel.packagePath || selectedImageModel.relativePath || "",
+        files: modelFiles(selectedImageModel),
+        prompt,
+        negative_prompt: String(values.get("negative") || "").trim(),
+        width: Number(values.get("width") || 1024),
+        height: Number(values.get("height") || 1024),
+        steps: Number(values.get("steps") || 28),
+        cfg: Number(values.get("cfg") || 5)
+      };
+      const seed = String(values.get("seed") || "").trim();
+      if (seed) payload.seed = Number(seed);
+      const response = await fetch(runtimeBase() + "/v1/image/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "图像任务启动失败：" + response.status);
+      await pollImage(status, form);
+    } catch (error) {
+      status.textContent = "图像任务启动失败：\n" + String(error.message || error);
+      if (run) run.disabled = false;
+      if (stop) stop.disabled = true;
+    }
+  }
+
+  async function stopImageTask(form, status) {
+    stopImagePolling();
+    const run = form.querySelector('button[type="submit"]');
+    const stop = form.querySelector("[data-stop-image]");
+    try {
+      const response = await fetch(runtimeBase() + "/v1/image/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "停止图像任务失败。");
+      status.textContent = imagePhaseText(result.image || {});
+    } catch (error) {
+      status.textContent = "停止失败：" + String(error.message || error);
+    } finally {
+      if (run) run.disabled = false;
+      if (stop) stop.disabled = true;
+    }
+  }
 
   function renderTabs() {
     tabs.textContent = "";
@@ -178,12 +368,29 @@
     check.type = "button";
     check.textContent = "检查本机后端";
     actions.append(run, check);
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.dataset.stopImage = "true";
+    stop.textContent = "停止任务";
+    stop.disabled = true;
+    if (item.id === "image-generation") actions.appendChild(stop);
     form.appendChild(actions);
     form.addEventListener("submit", event => {
       event.preventDefault();
       const status = root.querySelector(".workspace-status");
-      status.textContent = item.title + " 的输入已准备好。当前仓库已完成工作区 UI 与模型路由，后端适配器仍需按模型家族安装后才能真正执行。";
+      if (item.id === "image-generation") {
+        runImageTask(form, status);
+      } else {
+        status.textContent = item.title + " 的输入已准备好；该模型家族尚未完成真实 Runtime 适配，因此不会伪装成已执行。";
+      }
     });
+    if (item.id === "image-generation") {
+      run.disabled = !selectedImageModel;
+      stop.addEventListener("click", () => {
+        const status = root.querySelector(".workspace-status");
+        stopImageTask(form, status);
+      });
+    }
     main.append(eyebrow, title, description, form);
 
     const side = document.createElement("aside");
@@ -192,15 +399,21 @@
     sideTitle.textContent = "运行方案";
     const backend = document.createElement("div");
     backend.className = "workspace-backend";
-    backend.textContent = "目标后端 · " + item.backend;
+    backend.textContent = item.id === "image-generation" && selectedImageModel
+      ? "当前模型 · " + selectedImageModel.name + " · " + item.backend
+      : "目标后端 · " + item.backend;
     const status = document.createElement("div");
     status.className = "workspace-status";
-    status.textContent = "点击“检查本机后端”获取 Runtime 检测结果。";
+    status.textContent = item.id === "image-generation"
+      ? (selectedImageModel
+          ? "已选择 " + selectedImageModel.name + "。填写提示词后可直接生成。"
+          : "请先从模型库选择一个已经接入适配器并通过硬件检查的图像模型。")
+      : "点击“检查本机后端”获取 Runtime 检测结果。";
     check.addEventListener("click", async () => {
       status.textContent = "正在检查本机 Runtime…";
       try {
-        const base = (window.MODEL_CONFIG && window.MODEL_CONFIG.runtimeBase) || "http://127.0.0.1:8765";
-        const response = await fetch(base.replace(/\/$/, "") + "/v1/backends", { cache: "no-store" });
+        const base = runtimeBase();
+        const response = await fetch(base + "/v1/backends", { cache: "no-store" });
         if (!response.ok) throw new Error("HTTP " + response.status);
         backendState = await response.json();
         const info = backendState.backends && backendState.backends[item.backend];
@@ -215,6 +428,18 @@
     card.append(main, side);
     content.appendChild(card);
   }
+
+  window.ModelWorkspaces = {
+    openModel(model) {
+      if (!model || model.workspace !== "image-generation") return false;
+      selectedImageModel = model;
+      active = "image-generation";
+      renderTabs();
+      renderContent();
+      root.scrollIntoView({ behavior: "smooth", block: "start" });
+      return true;
+    }
+  };
 
   renderTabs();
   renderContent();

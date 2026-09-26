@@ -139,6 +139,13 @@
 4. 为视频增加远程 NVIDIA Runtime。
 5. 扩展更多模型家族和高级参数。
 
+## 推进记录（2026-09-26）
+
+- 第一阶段：已在 PR #17 实现启动入口的后端/硬件门禁；GGUF 需要检测到 llama.cpp，managed ComfyUI 图像/视频需要硬件检查通过，否则仅显示运行方案。
+- 第二阶段：Pony Diffusion V6 XL 已加入固定 checkpoint 校验、Drive 断点缓存、managed ComfyUI SDXL 工作流、网页图像任务和结果回传；Windows 打包冒烟测试已覆盖新 API。
+- 第二阶段：FLUX.2 Klein 4B FP8 继续保持“需要适配器”，因为当前 Drive 只有 FP8 主权重，companion components 尚未完整，不允许仅凭 .safetensors 扩展名启用。
+- 后续优先级保持不变：补一个真实小型 GGUF → 专用任务模型 → 远程 NVIDIA Runtime → 更多模型家族。
+
 ## 完成定义
 
 当用户在模型卡片上点击“使用模型”后，网页能自动完成检查、按需读取缓存、启动正确后端、提交任务并返回结果；如果模型当前不能运行，网页能在点击前准确说明缺少的权重、适配器或硬件条件。

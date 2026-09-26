@@ -478,6 +478,66 @@
     return null;
   }
 
+  function imageAdapterFor(model) {
+    if (!model) return null;
+    const hay = [
+      model.id,
+      model.name,
+      model.repo,
+      model.packagePath,
+      model.relativePath
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (
+      hay.includes("pony_diffusion_v6_xl") ||
+      hay.includes("pony diffusion v6 xl") ||
+      hay.includes("pony-diffusion-v6-xl")
+    ) {
+      return {
+        id: "pony_diffusion_v6_xl",
+        checkpoint: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
+        minBytes: 6000000000
+      };
+    }
+
+    return null;
+  }
+
+  function imageArtifactState(model, adapter) {
+    if (!adapter) return { ready: false, detail: "没有图像适配器" };
+    const files = Array.isArray(model && model.files) ? model.files : [];
+    const expected = String(adapter.checkpoint || "").toLowerCase();
+    const match = files.find(file =>
+      String(file && file.name || "").toLowerCase() === expected
+    );
+    if (!match) {
+      return {
+        ready: false,
+        detail: "Drive 未发现固定 checkpoint：" + adapter.checkpoint
+      };
+    }
+    const size = Number(match.size || 0);
+    if (!Number.isFinite(size) || size < Number(adapter.minBytes || 0)) {
+      return {
+        ready: false,
+        detail: "Drive checkpoint 大小异常，可能不完整"
+      };
+    }
+    return { ready: true, detail: "固定 checkpoint 已确认" };
+  }
+
+  function managedComfyHardware() {
+    const hardware = runtimeState && runtimeState.hardware;
+    if (!hardware) {
+      return { known: false, supported: false, detail: "等待新版 Runtime 检查本机硬件" };
+    }
+    return {
+      known: true,
+      supported: !!hardware.managed_comfy_supported,
+      detail: String(hardware.managed_comfy_detail || "")
+    };
+  }
+
   function stopVideoPolling() {
     if (videoPollTimer) {
       clearTimeout(videoPollTimer);
@@ -753,8 +813,19 @@
     return [
       "后端：" + (plan.backend || "未知"),
       "工作区：" + (plan.workspace || "generic"),
+      "权重：" + (
+        plan.artifact_present === true
+          ? "已发现"
+          : plan.artifact_present === false
+            ? "未就绪"
+            : "未知"
+      ),
+      plan.weight_detail ? "权重说明：" + plan.weight_detail : "",
       "本机检测：" + (status.detected ? "已检测到" : "未检测到"),
       status.detail ? "状态：" + status.detail : "",
+      plan.hardware_supported === false ? "硬件：不支持" : "",
+      plan.hardware_supported === true ? "硬件：已通过" : "",
+      plan.hardware_detail ? "硬件说明：" + plan.hardware_detail : "",
       plan.availability_label ? "模型状态：" + plan.availability_label : "",
       plan.adapter ? "适配器：" + plan.adapter : "",
       plan.availability_reason ? "说明：" + plan.availability_reason : "",
@@ -781,7 +852,14 @@
           relative_path: model.relativePath,
           name: model.name,
           model_id: model.id,
-          artifact_present: !model.vaultMissing
+          artifact_present: !model.vaultMissing,
+          files: (Array.isArray(model.files) ? model.files : []).map(file => ({
+            drive_file_id: file.id,
+            file_name: file.name,
+            size: Number(file.size || 0) || null,
+            md5_checksum: file.md5Checksum || "",
+            resource_key: file.resourceKey || ""
+          }))
         })
       });
 
@@ -866,15 +944,34 @@
       meta.className = "model-meta";
       const info = backendInfo(model);
       const videoAdapter = videoAdapterFor(model);
+      const imageAdapter = imageAdapterFor(model);
+      const imageArtifact = imageAdapter
+        ? imageArtifactState(model, imageAdapter)
+        : null;
+      const managedAdapter = videoAdapter || imageAdapter;
+      const hardware = managedComfyHardware();
       const capability = capabilityInfo(model);
       const pieces = [
         model.category || "unknown",
         model.workspace || "generic",
         model.qualityTier || "",
-        model.vaultMissing ? "主库未发现文件" : capability ? capability.label : "",
+        model.vaultMissing
+          ? "主库未发现文件"
+          : imageAdapter && imageArtifact && !imageArtifact.ready
+            ? "Drive 文件不完整"
+            : managedAdapter && hardware.known && !hardware.supported
+              ? "硬件不支持"
+              : capability
+                ? capability.label
+                : "",
         videoAdapter ? "网页视频适配已支持" : "",
-        videoAdapter
-          ? "首次运行自动准备"
+        imageAdapter ? "网页图像适配已支持" : "",
+        managedAdapter
+          ? hardware.known
+            ? hardware.supported
+              ? "硬件检查已通过"
+              : "当前硬件不满足 managed ComfyUI"
+            : "等待 Runtime 硬件检查"
           : info
             ? (info.detected ? "后端已检测" : "后端未安装")
             : ""
@@ -886,7 +983,11 @@
       path.textContent = model.vaultMissing
         ? "登记表中存在；所选 AI-Model-Vault 内未发现模型文件。"
         : (model.packagePath || model.relativePath) +
-          (capability && capability.label !== "可直接使用" ? " · " + capability.reason : "");
+          (imageAdapter && imageArtifact && !imageArtifact.ready
+            ? " · " + imageArtifact.detail
+            : capability && capability.label !== "可直接使用"
+              ? " · " + capability.reason
+              : "");
 
       const actions = document.createElement("div");
       actions.className = "model-actions";
@@ -922,7 +1023,12 @@
       plan.addEventListener("click", () => planModel(model, plan));
       actions.appendChild(plan);
 
-      if (model.directLaunch && (!capability || capability.label === "可直接使用")) {
+      if (
+        model.directLaunch &&
+        info &&
+        info.detected &&
+        (!capability || capability.label === "可直接使用")
+      ) {
         const inspect = document.createElement("button");
         inspect.type = "button";
         inspect.textContent = "本机检查";
@@ -936,7 +1042,12 @@
         launch.className = "primary";
         launch.addEventListener("click", () => startModel(model));
         actions.appendChild(launch);
-      } else if (videoAdapter && (!capability || capability.label === "可直接使用")) {
+      } else if (
+        videoAdapter &&
+        hardware.known &&
+        hardware.supported &&
+        (!capability || capability.label === "可直接使用")
+      ) {
         const useVideo = document.createElement("button");
         useVideo.type = "button";
         useVideo.dataset.icon = "play";
@@ -944,6 +1055,30 @@
         useVideo.className = "primary";
         useVideo.addEventListener("click", () => openVideoWorkspace(model));
         actions.appendChild(useVideo);
+      } else if (
+        imageAdapter &&
+        imageArtifact &&
+        imageArtifact.ready &&
+        hardware.known &&
+        hardware.supported &&
+        (!capability || capability.label === "可直接使用")
+      ) {
+        const useImage = document.createElement("button");
+        useImage.type = "button";
+        useImage.dataset.icon = "play";
+        useImage.textContent = "使用图像模型";
+        useImage.className = "primary";
+        useImage.addEventListener("click", () => {
+          if (
+            window.ModelWorkspaces &&
+            typeof window.ModelWorkspaces.openModel === "function"
+          ) {
+            window.ModelWorkspaces.openModel(model);
+          } else {
+            showError("图像工作区尚未加载，请刷新网页后重试。");
+          }
+        });
+        actions.appendChild(useImage);
       } else if (!model.vaultMissing && (!capability || !["Drive 文件不完整", "依赖模型不完整"].includes(capability.label))) {
         const prepare = document.createElement("button");
         prepare.type = "button";
@@ -1108,6 +1243,16 @@
       showError(error);
     }
   }
+
+  window.ModelApp = {
+    runtimeBase: () => runtimeBase || window.MODEL_CONFIG.runtimeBase,
+    syncRuntimeDriveSession: async () => {
+      saveRuntimeBase();
+      await ensureAccessToken();
+      await syncRuntimeDriveSession();
+      return true;
+    }
+  };
 
   async function init() {
     window.DriveModelClient.captureOAuthSession();
