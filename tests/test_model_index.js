@@ -97,12 +97,20 @@ const registry = {
       quality_tier: "main",
       recommended_runtime: ["llama.cpp", "LM Studio"],
       device_fit: {}
+    },
+    {
+      id: "chronos_2",
+      name: "Chronos-2",
+      repo: "amazon/chronos-2",
+      category: "timeseries",
+      recommended_runtime: ["PyTorch"],
+      device_fit: {}
     }
   ]
 };
 
 const packages = window.DriveModelIndex.flattenPackages(tree, registry);
-assert.strictEqual(packages.length, 2);
+assert.strictEqual(packages.length, 3);
 
 const wan = packages.find(item => item.id === "wan22_animate_14b");
 assert.ok(wan);
@@ -118,5 +126,12 @@ assert.strictEqual(qwen.backend, "llama.cpp");
 assert.strictEqual(qwen.workspace, "chat");
 assert.strictEqual(qwen.directLaunch, true);
 assert.ok(qwen.relativePath.endsWith(".gguf"));
+
+const missing = packages.find(item => item.id === "chronos_2");
+assert.ok(missing);
+assert.strictEqual(missing.vaultMissing, true);
+assert.strictEqual(missing.fileCount, 0);
+assert.strictEqual(missing.directLaunch, false);
+assert.strictEqual(missing.workspace, "timeseries");
 
 console.log("model-index package tests passed");
