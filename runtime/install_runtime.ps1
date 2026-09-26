@@ -126,6 +126,29 @@ function Stop-ExistingRuntime {
     } catch {}
 }
 
+function Stop-InstalledRuntimeProcess {
+    $installedExe = Join-Path $appDir "ModelRuntime.exe"
+    if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+        return
+    }
+
+    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+        $running = @(
+            Get-CimInstance Win32_Process -Filter "Name='ModelRuntime.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.ExecutablePath -ieq $installedExe }
+        )
+        if ($running.Count -eq 0) {
+            return
+        }
+        foreach ($process in $running) {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    throw "Installed ModelRuntime.exe is still running. Close it and run Install.cmd again."
+}
+
 function Startup-Command {
     $background = Join-Path $appDir "background.ps1"
     return 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $background + '"'
@@ -170,6 +193,7 @@ if (-not $llamaPath) {
 
 Stop-ExistingTray
 Stop-ExistingRuntime
+Stop-InstalledRuntimeProcess
 
 foreach ($name in $required) {
     Copy-Item -LiteralPath (Join-Path $sourceRuntime $name) -Destination (Join-Path $appDir $name) -Force
