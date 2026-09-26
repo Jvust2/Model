@@ -6,7 +6,7 @@
   let runtimeBase = "";
   let runtimeState = null;
   let backendState = null;
-  let modelCapabilities = {};
+  let modelCapabilities = window.MODEL_CAPABILITIES || {};
   let runtimePollTimer = null;
   let runtimeReconnectTimer = null;
   let chatBusy = false;
@@ -734,14 +734,15 @@
       const response = await fetch(runtimeUrl("/v1/models/capabilities"), { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      modelCapabilities = Object.fromEntries((data.models || []).map(item => [item.model_id, item]));
+      modelCapabilities = Object.assign({}, modelCapabilities, Object.fromEntries((data.models || []).map(item => [item.model_id, item])));
     } catch (_) {
-      modelCapabilities = {};
+      modelCapabilities = window.MODEL_CAPABILITIES || {};
     }
   }
 
   function capabilityInfo(model) {
-    return modelCapabilities[String(model.id || "").toLowerCase()] || null;
+    const key = String(model.id || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return modelCapabilities[key] || null;
   }
 
   function planText(plan) {
@@ -787,15 +788,13 @@
       if (!response.ok) throw new Error(data.error || "运行方案分析失败：" + response.status);
 
       const plan = data.plan || {};
+      const capability = capabilityInfo(model);
+      if (capability && !plan.availability_label) {
+        plan.availability_label = capability.label;
+        plan.availability_reason = capability.reason;
+      }
       $("runtimeLog").textContent = planText(plan);
-      setStatus(
-        model.name +
-          " · " +
-          model.backend +
-          (plan.backend_status && plan.backend_status.detected
-            ? " 后端已检测"
-            : " 需要准备后端")
-      );
+      setStatus(model.name + " · " + (plan.availability_label || model.backend));
     } catch (error) {
       showError(error);
       setStatus("运行方案分析失败");
@@ -879,7 +878,8 @@
 
       const path = document.createElement("div");
       path.className = "model-path";
-      path.textContent = model.packagePath || model.relativePath;
+      path.textContent = (model.packagePath || model.relativePath) +
+        (capability && capability.label !== "可直接使用" ? " · " + capability.reason : "");
 
       const actions = document.createElement("div");
       actions.className = "model-actions";
@@ -915,7 +915,7 @@
       plan.addEventListener("click", () => planModel(model, plan));
       actions.appendChild(plan);
 
-      if (model.directLaunch) {
+      if (model.directLaunch && (!capability || capability.label === "可直接使用")) {
         const inspect = document.createElement("button");
         inspect.type = "button";
         inspect.textContent = "本机检查";
@@ -929,7 +929,7 @@
         launch.className = "primary";
         launch.addEventListener("click", () => startModel(model));
         actions.appendChild(launch);
-      } else if (videoAdapter) {
+      } else if (videoAdapter && (!capability || capability.label === "可直接使用")) {
         const useVideo = document.createElement("button");
         useVideo.type = "button";
         useVideo.dataset.icon = "play";
@@ -937,7 +937,7 @@
         useVideo.className = "primary";
         useVideo.addEventListener("click", () => openVideoWorkspace(model));
         actions.appendChild(useVideo);
-      } else {
+      } else if (!capability || !["Drive 文件不完整", "依赖模型不完整"].includes(capability.label)) {
         const prepare = document.createElement("button");
         prepare.type = "button";
         prepare.dataset.icon = "play";
