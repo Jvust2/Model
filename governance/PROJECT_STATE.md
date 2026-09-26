@@ -8,7 +8,7 @@ Build a Drive-first AI model website where Google Drive remains the model vault,
 
 ## Current state
 
-Status: **v0.10 model enablement / first web image adapter in validation**
+Status: **v0.11 model hardware preflight in validation**
 
 Verified on the live site before this branch:
 
@@ -50,6 +50,9 @@ Implemented on this branch:
 - Pony Diffusion V6 XL now has a dedicated web image adapter using the verified Drive checkpoint and a fixed SDXL ComfyUI graph.
 - Runtime exposes `/v1/image/generate`, `/v1/image/status`, `/v1/image/stop` and image-file return.
 - Image/video direct-use actions are gated by managed-ComfyUI hardware status before large downloads begin.
+- Runtime hardware status now reports nvidia-smi detection, CUDA version, GPU/VRAM, system RAM and cache-disk free space.
+- GGUF launch planning/start now checks cache disk, configured CPU threads and available physical memory before downloading/starting.
+- Empty canonical Vault category folders now exist for llm, reasoning, code, multimodal, ocr, rag, timeseries and novel; they do not count as model availability.
 - The current managed ComfyUI package remains NVIDIA Windows/CUDA based; AMD-only machines are reported as hardware unsupported.
 - FLUX.2 Klein 4B FP8 remains adapter-required until its companion-component/runtime path is verified; it is not promoted merely because a single safetensors file exists.
 - Other ComfyUI/Diffusers model families remain future adapters.
@@ -107,8 +110,8 @@ Implemented on this branch:
 
 1. Validate Pony Diffusion V6 XL end-to-end on a supported NVIDIA Windows Runtime and record VRAM/RAM/disk observations.
 2. Verify FLUX.2 Klein 4B FP8 companion components and then add its fixed image adapter without redownloading an unrelated full repository.
-3. Add at least one small real GGUF to Drive as the default chat model and validate the full Drive cache → llama.cpp round trip.
-4. Add GOT-OCR, Qwen Embedding, Qwen Reranker and Chronos/TimesFM task adapters/workspaces as their real weights become available.
+3. Add at least one real small chat GGUF to the new `llm` Vault category; the preflight/cache/llama.cpp path is ready, but no chat GGUF currently exists in the canonical vault.
+4. Add GOT-OCR, Qwen Embedding, Qwen Reranker and Chronos/TimesFM weights to their new Vault categories, then enable their task adapters/workspaces; Drive audit currently finds no reusable weight copies.
 5. Add remote NVIDIA Runtime routing for AMD/no-NVIDIA clients while preserving the same web task API.
 6. Extend video adapters to Wan2.2 T2V/I2V/Animate and additional verified model families.
 7. Keep cache management/cancellation coverage and evaluate sparse-cache/virtual filesystem access only after full-file paths are stable.
