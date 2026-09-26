@@ -21,6 +21,9 @@ def default_cache_root() -> Path:
     if configured:
         return Path(os.path.expandvars(os.path.expanduser(configured))).resolve()
 
+    if os.name == "nt":
+        return Path(r"D:\\Model").resolve()
+
     local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
     if local_app_data:
         return (Path(local_app_data) / "JvustModel" / "cache").resolve()
