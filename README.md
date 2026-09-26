@@ -138,3 +138,17 @@ Production:
 
 - GitHub: code, governance, current project state.
 - Google Drive: model artifacts and model metadata registry.
+
+## AI 工作区
+
+网站现在提供统一的多工作区入口：
+
+- 本机聊天：GGUF / llama.cpp
+- 本机视频：Wan2.2、HunyuanVideo
+- 图像生成：ComfyUI / Diffusers 运行方案
+- 图像编辑：局部重绘、扩图、放大
+- 视觉 / OCR：Transformers 运行方案
+- 向量检索：Embedding / Rerank 知识库入口
+- 时序预测：PyTorch 预测入口
+
+图像、视觉、检索和时序工作区会先检查本机后端，并保留模型家族适配边界；模型库卡片仍是模型包与 Drive 元数据的唯一来源。
