@@ -8,7 +8,7 @@ Build a Drive-first AI model website where Google Drive remains the model vault,
 
 ## Current state
 
-Status: **v0.12 image enablement + default-chat bootstrap prepared**
+Status: **v0.13 private remote NVIDIA Runtime implemented / validation pending**
 
 Verified on the live site before this branch:
 
@@ -75,6 +75,9 @@ Implemented on this branch:
 8. GGUF direct launch requires a complete verified local cache file.
 9. A model format extension alone does not imply that arbitrary non-GGUF files are executable.
 10. Model-family-specific adapters are required for ComfyUI / Diffusers / Transformers / PyTorch families.
+11. Remote Runtime must preserve localhost-only binding; tailnet publication is handled by Tailscale Serve, never by binding Runtime to LAN/public interfaces.
+12. Remote non-loopback browser connections require HTTPS; the website does not persist the Runtime token beyond `sessionStorage`.
+13. A remote Runtime may receive the user's short-lived Drive token only over the configured HTTPS connection and must keep it memory-only.
 
 ## Normal user flow
 
@@ -106,6 +109,7 @@ Implemented on this branch:
 | --- | --- | --- |
 | llama.cpp | yes | yes, via Drive API cache |
 | ComfyUI | managed/runtime detection + hardware gate | Pony Diffusion V6 XL + Qwen-Image 2.1 GGUF image, Wan2.2 TI2V 5B + HunyuanVideo 1.5 T2V on supported NVIDIA Windows hardware |
+| Remote NVIDIA transport | Tailscale Serve + Runtime token | implemented; real two-device validation pending |
 | Diffusers | yes | not yet |
 | Transformers | yes | not yet |
 | PyTorch | yes | not yet |
@@ -118,6 +122,6 @@ Implemented on this branch:
 2. Verify FLUX.2 Klein 4B FP8 companion components and then add its fixed image adapter; keep using existing Drive assets or linked sources rather than duplicate large model trees.
 3. Run/validate the prepared Qwen3-0.6B Q8_0 Drive bootstrap, confirm the verified GGUF appears under `llm/Qwen3-0.6B-GGUF`, then validate the full Drive cache → llama.cpp → web-chat round trip.
 4. Add GOT-OCR, Qwen Embedding, Qwen Reranker and Chronos/TimesFM weights to their new Vault categories, then enable their task adapters/workspaces; Drive audit currently finds no reusable weight copies.
-5. Add remote NVIDIA Runtime routing for AMD/no-NVIDIA clients while preserving the same web task API.
+5. Validate the implemented Tailscale Serve remote NVIDIA path on two real devices (AMD/no-NVIDIA client + separate NVIDIA Windows host), including Drive session sync, progress polling and returned image/video media.
 6. Extend video adapters to Wan2.2 T2V/I2V/Animate and additional verified model families.
 7. Keep cache management/cancellation coverage and evaluate sparse-cache/virtual filesystem access only after full-file paths are stable.

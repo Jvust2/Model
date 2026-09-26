@@ -21,6 +21,41 @@ class DriveSessionTests(unittest.TestCase):
             session.set("")
 
 
+class RemoteTokenTests(unittest.TestCase):
+    def test_remote_token_disabled_accepts_request(self):
+        self.assertTrue(bridge.remote_token_valid("", None, None))
+
+    def test_accepts_bearer_token(self):
+        self.assertTrue(
+            bridge.remote_token_valid(
+                "secret-token",
+                "Bearer secret-token",
+                None,
+            )
+        )
+
+    def test_accepts_legacy_header_token(self):
+        self.assertTrue(
+            bridge.remote_token_valid(
+                "secret-token",
+                None,
+                "secret-token",
+            )
+        )
+
+    def test_rejects_missing_or_wrong_token(self):
+        self.assertFalse(
+            bridge.remote_token_valid("secret-token", None, None)
+        )
+        self.assertFalse(
+            bridge.remote_token_valid(
+                "secret-token",
+                "Bearer wrong-token",
+                None,
+            )
+        )
+
+
 class GgufInspectionTests(unittest.TestCase):
     def test_reads_fixed_header_without_payload(self):
         with tempfile.TemporaryDirectory() as temp:

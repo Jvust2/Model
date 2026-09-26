@@ -160,6 +160,11 @@
 - 网页在未发现聊天 GGUF 时会显示“准备默认聊天模型”，自动定位 Drive 中的引导器并打开 Colab；完成后重新扫描即可复用现有 Drive API → `D:\Model` → llama.cpp → 网页聊天链路。
 - 索引修正：未登记但位于 `llm / reasoning / code / novel` 明确目录下的 `.gguf` 可被识别为 llama.cpp；图像目录中的 GGUF 仍不会被误判为聊天模型。
 
+- 第五阶段继续推进：已实现远程 NVIDIA Runtime 传输层，网页可把 Runtime Base URL 切换到 HTTPS 远程地址，同时保持现有图像/视频/聊天 API 不变。
+- 远程模式使用 Tailscale Serve 专用 HTTPS 8443 端口反向代理到 NVIDIA 主机的 `127.0.0.1:8765`；不使用 Funnel，不让 Runtime 监听 LAN/public 地址。
+- Runtime v0.13 支持可选 256-bit 令牌；远程脚本自动生成并写入 NVIDIA 主机配置，网页令牌只放 `sessionStorage`。
+- 已加入 `Enable-Remote-Nvidia.cmd` / `Disable-Remote-Nvidia.cmd` 和完整文档；当前状态是“实现完成、真实双机验收待做”，不能标记为跨设备已验证。
+
 ## 完成定义
 
 当用户在模型卡片上点击“使用模型”后，网页能自动完成检查、按需读取缓存、启动正确后端、提交任务并返回结果；如果模型当前不能运行，网页能在点击前准确说明缺少的权重、适配器或硬件条件。

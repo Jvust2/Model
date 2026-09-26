@@ -76,8 +76,32 @@ function Read-Config {
     }
 }
 
-function Save-Config([string]$llamaPath, [string]$cachePath) {
-    $config = [PSCustomObject]@{
+function Save-Config([string]$llamaPath, [string]$cachePath, $existingConfig) {
+    $remoteEnabled = $false
+    $remoteUrl = ""
+    $remoteToken = ""
+    $remoteMode = ""
+    $remoteServePort = 8443
+
+    if ($existingConfig) {
+        if ($null -ne $existingConfig.remoteEnabled) {
+            $remoteEnabled = [bool]$existingConfig.remoteEnabled
+        }
+        if ($existingConfig.remoteUrl) {
+            $remoteUrl = [string]$existingConfig.remoteUrl
+        }
+        if ($existingConfig.remoteToken) {
+            $remoteToken = [string]$existingConfig.remoteToken
+        }
+        if ($existingConfig.remoteMode) {
+            $remoteMode = [string]$existingConfig.remoteMode
+        }
+        if ($existingConfig.remoteServePort) {
+            $remoteServePort = [int]$existingConfig.remoteServePort
+        }
+    }
+
+    $nextConfig = [PSCustomObject]@{
         llamaServerPath = $llamaPath
         cacheRoot = $cachePath
         bridgePort = 8765
@@ -86,8 +110,13 @@ function Save-Config([string]$llamaPath, [string]$cachePath) {
         loadMode = "none"
         readyWarnSeconds = 300
         installMode = "tray-autostart"
+        remoteEnabled = $remoteEnabled
+        remoteUrl = $remoteUrl
+        remoteToken = $remoteToken
+        remoteMode = $remoteMode
+        remoteServePort = $remoteServePort
     }
-    $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
+    $nextConfig | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
 }
 
 function Stop-ExistingTray {
@@ -199,7 +228,7 @@ foreach ($name in $required) {
     Copy-Item -LiteralPath (Join-Path $sourceRuntime $name) -Destination (Join-Path $appDir $name) -Force
 }
 
-Save-Config $llamaPath $cacheDir
+Save-Config $llamaPath $cacheDir $config
 
 New-Item -Path $runKey -Force | Out-Null
 New-ItemProperty -Path $runKey -Name $runName -PropertyType String -Value (Startup-Command) -Force | Out-Null

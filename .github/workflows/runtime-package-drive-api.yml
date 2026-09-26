@@ -78,8 +78,11 @@ jobs:
               throw "Expected Pony and Qwen Image adapters in packaged Runtime."
             }
             $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/runtime" -TimeoutSec 3
-            if ([int]$runtime.runtime_version -lt 12) {
-              throw "Expected Runtime v0.12 linked Qwen Image API."
+            if ([int]$runtime.runtime_version -lt 13) {
+              throw "Expected Runtime v0.13 remote Runtime API."
+            }
+            if ($runtime.remote_auth_required) {
+              throw "Packaged Runtime should not require a remote token by default."
             }
             if ($null -eq $runtime.hardware.managed_comfy_supported) {
               throw "Runtime hardware gate is missing."
@@ -116,6 +119,7 @@ jobs:
             "runtime\launch_model.ps1",
             "runtime\install_runtime.ps1",
             "runtime\background.ps1",
+            "runtime\remote_nvidia.ps1",
             "runtime\uninstall_runtime.ps1"
           )
           foreach ($file in $files) {
@@ -140,6 +144,7 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\launch_model.ps1 -SelfTest
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\install_runtime.ps1 -SelfTest
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\background.ps1 -SelfTest
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\remote_nvidia.ps1 -SelfTest
           if (-not (Test-Path -LiteralPath "runtime\ModelRuntime.exe" -PathType Leaf)) { throw "ModelRuntime.exe missing after build." }
 
       - name: Assemble runtime package

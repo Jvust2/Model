@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import secrets
 import shutil
 import socket
 import struct
@@ -89,6 +90,7 @@ MODEL_LOAD_MODE = normalize_load_mode(os.environ.get("MODEL_LOAD_MODE", "none"))
 MODEL_READY_WARN_SECONDS = positive_float_env("MODEL_READY_WARN_SECONDS", 300.0)
 MODEL_HEALTH_INTERVAL = positive_float_env("MODEL_HEALTH_INTERVAL", 0.5)
 MODEL_CHAT_TIMEOUT = positive_float_env("MODEL_CHAT_TIMEOUT", 600.0)
+REMOTE_TOKEN = os.environ.get("MODEL_REMOTE_TOKEN", "").strip()
 
 DEFAULT_ORIGINS = ",".join(
     [
@@ -103,6 +105,26 @@ ALLOWED_ORIGINS = {
     for item in os.environ.get("MODEL_ALLOWED_ORIGINS", DEFAULT_ORIGINS).split(",")
     if item.strip()
 }
+
+
+def remote_token_valid(
+    configured: str | None,
+    authorization: str | None = None,
+    fallback: str | None = None,
+) -> bool:
+    expected = str(configured or "").strip()
+    if not expected:
+        return True
+
+    auth = str(authorization or "").strip()
+    candidate = ""
+    if auth.lower().startswith("bearer "):
+        candidate = auth[7:].strip()
+    if not candidate:
+        candidate = str(fallback or "").strip()
+    if not candidate:
+        return False
+    return secrets.compare_digest(candidate, expected)
 
 
 def resolve_llama_server() -> str | None:
@@ -595,7 +617,7 @@ atexit.register(VIDEO.shutdown)
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DriveModelBridge/0.10"
+    server_version = "DriveModelBridge/0.13"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -604,12 +626,22 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return origin is None or origin in ALLOWED_ORIGINS
 
+    def _authorized(self) -> bool:
+        return remote_token_valid(
+            REMOTE_TOKEN,
+            self.headers.get("Authorization"),
+            self.headers.get("X-Model-Runtime-Token"),
+        )
+
     def _cors_headers(self) -> None:
         origin = self.headers.get("Origin")
         if origin and origin in ALLOWED_ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-Model-Runtime-Token",
+        )
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     def _json(self, status: int, payload: dict) -> None:
@@ -701,7 +733,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 12})
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "service": "Drive Model Local Runtime",
+                    "version": 13,
+                    "remote_auth_required": bool(REMOTE_TOKEN),
+                },
+            )
+            return
+
+        if not self._origin_allowed():
+            self._json(403, {"error": "Origin not allowed."})
+            return
+
+        media_paths = {"/v1/image/file", "/v1/video/file"}
+        if path.startswith("/v1/") and path not in media_paths and not self._authorized():
+            self._json(401, {"error": "Runtime authorization required."})
             return
 
         if path == "/v1/backends":
@@ -734,7 +783,8 @@ class Handler(BaseHTTPRequestHandler):
                     "video": VIDEO.snapshot(),
                     "image": IMAGE.snapshot(),
                     "hardware": runtime_hardware_snapshot(),
-                    "runtime_version": 12,
+                    "runtime_version": 13,
+                    "remote_auth_required": bool(REMOTE_TOKEN),
                 }
             )
             self._json(200, payload)
@@ -803,6 +853,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._origin_allowed():
             self._json(403, {"error": "Origin not allowed."})
+            return
+        if not self._authorized():
+            self._json(401, {"error": "Runtime authorization required."})
             return
 
         path = urlparse(self.path).path
@@ -1070,7 +1123,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.12")
+    print("Drive Model Local Runtime v0.13")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive source: Google Drive API (no desktop mount required)")
     print("Cache root:", DRIVE_CACHE.root)
@@ -1081,6 +1134,7 @@ def main() -> None:
     print("Load mode:", MODEL_LOAD_MODE)
     print("Ready warning:", f"{MODEL_READY_WARN_SECONDS:.0f}s")
     print("Allowed origins:", ", ".join(sorted(ALLOWED_ORIGINS)))
+    print("Remote auth:", "enabled" if REMOTE_TOKEN else "disabled")
 
     server = ThreadingHTTPServer((HOST, BRIDGE_PORT), Handler)
     try:

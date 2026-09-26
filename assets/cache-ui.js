@@ -52,6 +52,16 @@
     return value.replace(/\/$/, "");
   }
 
+  async function runtimeFetch(path, options = {}) {
+    if (
+      window.ModelApp &&
+      typeof window.ModelApp.runtimeFetch === "function"
+    ) {
+      return window.ModelApp.runtimeFetch(path, options);
+    }
+    return fetch(baseUrl() + path, options);
+  }
+
   function bytes(value) {
     const n = Number(value || 0);
     if (!Number.isFinite(n) || n <= 0) return "大小未知";
@@ -90,7 +100,7 @@
         if (!window.confirm("删除“" + (entry.name || entry.file_id) + "”的本地缓存？")) return;
         button.disabled = true;
         try {
-          const response = await fetch(baseUrl() + "/v1/models/cache/delete", {
+          const response = await runtimeFetch("/v1/models/cache/delete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ drive_file_id: entry.file_id })
@@ -111,7 +121,7 @@
   async function load() {
     refresh.disabled = true;
     try {
-      const response = await fetch(baseUrl() + "/v1/models/cache", { cache: "no-store" });
+      const response = await runtimeFetch("/v1/models/cache", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Runtime 未连接");
       render(Array.isArray(data.entries) ? data.entries : []);
@@ -131,7 +141,7 @@
     if (!window.confirm("删除所有本地模型缓存？此操作不会删除 Drive 中的模型。")) return;
     clearAll.disabled = true;
     try {
-      const response = await fetch(baseUrl() + "/v1/models/cache/clear", {
+      const response = await runtimeFetch("/v1/models/cache/clear", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}"

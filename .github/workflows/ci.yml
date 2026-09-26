@@ -69,6 +69,8 @@ jobs:
           grep -q '/v1/models/plan' runtime/local_bridge.py
           grep -q '/v1/video/generate' runtime/local_bridge.py
           grep -q '/v1/video/status' runtime/local_bridge.py
+          grep -q 'MODEL_REMOTE_TOKEN' runtime/local_bridge.py
+          grep -q 'runtimeToken' assets/app.js
           grep -q 'videoWorkspace' index.html
           grep -q 'generateVideo' assets/app.js
           test -f runtime/workflows/video_wan2_2_5B_ti2v.json
@@ -89,6 +91,7 @@ jobs:
             "runtime\start_bridge.ps1",
             "runtime\install_runtime.ps1",
             "runtime\background.ps1",
+            "runtime\remote_nvidia.ps1",
             "runtime\uninstall_runtime.ps1"
           )
           foreach ($file in $files) {
@@ -125,6 +128,10 @@ jobs:
           if not exist runtime\Model.cmd exit /b 1
           if not exist runtime\Install.cmd exit /b 1
           if not exist runtime\Uninstall.cmd exit /b 1
+          if not exist runtime\Enable-Remote-Nvidia.cmd exit /b 1
+          if not exist runtime\Disable-Remote-Nvidia.cmd exit /b 1
           findstr /C:"launch_model.ps1" runtime\Model.cmd >nul
           findstr /C:"install_runtime.ps1" runtime\Install.cmd >nul
           findstr /C:"uninstall_runtime.ps1" runtime\Uninstall.cmd >nul
+          findstr /C:"remote_nvidia.ps1" runtime\Enable-Remote-Nvidia.cmd >nul
+          findstr /C:"remote_nvidia.ps1" runtime\Disable-Remote-Nvidia.cmd >nul
