@@ -14,6 +14,14 @@
   let selectedVideoModel = null;
   let videoPollTimer = null;
 
+  const LINKED_MODEL_FOLDERS = [
+    {
+      modelId: "qwen_image_2_1_int8",
+      folderName: "Qwen-Image-2.1-GGUF",
+      categoryRoot: "image_base"
+    }
+  ];
+
   const $ = id => document.getElementById(id);
 
   function setStatus(text) {
@@ -1210,6 +1218,43 @@
         rootId
       );
 
+      let linkedFolders = 0;
+      const canonicalModels = window.DriveModelIndex.flattenPackages(
+        result.tree,
+        registry
+      );
+      for (const linked of LINKED_MODEL_FOLDERS) {
+        const canonical = canonicalModels.find(
+          item => item.id === linked.modelId && !item.vaultMissing
+        );
+        if (canonical) continue;
+
+        try {
+          const found = await window.DriveModelClient.findFolderByName(
+            accessToken,
+            linked.folderName,
+            "root"
+          );
+          if (!found.folder) continue;
+          setStatus("正在链接 Drive 模型目录 · " + linked.folderName);
+          const linkedResult = await window.DriveModelClient.scanModelTree(
+            accessToken,
+            found.folder.id
+          );
+          if (
+            window.DriveModelIndex.mountLinkedTree(
+              result.tree,
+              linkedResult.tree,
+              linked.categoryRoot
+            )
+          ) {
+            linkedFolders += 1;
+          }
+        } catch (error) {
+          console.warn("链接模型目录失败：", linked.folderName, error);
+        }
+      }
+
       window.DriveModelIndex.saveSnapshot(
         result.rootFolder,
         result.tree,
@@ -1236,7 +1281,8 @@
           result.modelFiles +
           " 权重文件 · " +
           models.length +
-          " 模型包"
+          " 模型包" +
+          (linkedFolders ? " · " + linkedFolders + " 个链接目录" : "")
       );
     } catch (error) {
       showError(error);
