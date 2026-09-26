@@ -28,11 +28,11 @@ Google Drive is the canonical model vault. The website discovers model packages 
 
 ## One-time Windows install
 
-For normal use, install the background Runtime once:
+For normal use, open the [Runtime package workflow](https://github.com/Jvust2/Model/actions/workflows/runtime-package-drive-api.yml), choose the latest successful run on `main`, download its `Model-Web-Runtime-…` artifact, extract it, then run:
 
     runtime\Install.cmd
 
-The packaged installer does **not** require a system Python installation.
+The source repository does not contain `ModelRuntime.exe`; use the workflow artifact above, which includes the compiled executable. The packaged installer does **not** require a system Python installation.
 
 The installer:
 
@@ -113,7 +113,7 @@ First video use may download:
 - ComfyUI Windows Portable (NVIDIA cu126);
 - several large model artifacts required by the official workflow.
 
-Those files are cached under `%LOCALAPPDATA%\JvustModel\video` and reused later.
+Those files are cached under `D:\Model\video` by default and reused later. Set `MODEL_VIDEO_ROOT` to override the video cache only.
 
 See `docs/MULTI_BACKEND.md` for the remaining family adapters.
 

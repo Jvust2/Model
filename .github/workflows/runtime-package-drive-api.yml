@@ -3,7 +3,9 @@ name: runtime-package-web
 on:
   push:
     branches:
-      - feat/video-runtime-v09
+      - main
+      - feat/runtime-package-main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -68,6 +70,10 @@ jobs:
             if (($video.supported_adapters | Measure-Object).Count -lt 2) {
               throw "Expected Wan and Hunyuan video adapters in packaged Runtime."
             }
+            $capabilities = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v1/models/capabilities" -TimeoutSec 3
+            if (($capabilities.models | Measure-Object).Count -ne 27) {
+              throw "Packaged Runtime is missing the 27-model capability registry."
+            }
           }
           finally {
             if ($p -and -not $p.HasExited) {
@@ -109,7 +115,7 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File runtime\background.ps1 -SelfTest
           if (-not (Test-Path -LiteralPath "runtime\ModelRuntime.exe" -PathType Leaf)) { throw "ModelRuntime.exe missing after build." }
 
-      - name: Build ZIP
+      - name: Assemble runtime package
         shell: powershell
         run: |
           $root = "Model-Runtime"
@@ -119,11 +125,10 @@ jobs:
           Copy-Item -Force index.html "$root\index.html"
           Copy-Item -Recurse -Force assets "$root\assets"
           Copy-Item -Force sw.js "$root\sw.js"
-          Compress-Archive -Path "$root\*" -DestinationPath "Model-Web-Runtime-v0.9.zip" -Force
 
-      - name: Upload ZIP
+      - name: Upload runtime package
         uses: actions/upload-artifact@v4
         with:
-          name: Model-Web-Runtime-v0.9
-          path: Model-Web-Runtime-v0.9.zip
+          name: Model-Web-Runtime-${{ github.sha }}
+          path: Model-Runtime/
           if-no-files-found: error

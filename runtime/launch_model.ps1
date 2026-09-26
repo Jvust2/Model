@@ -10,7 +10,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $configDir = Join-Path $env:LOCALAPPDATA "JvustModel"
 $configPath = Join-Path $configDir "runtime.json"
 $logDir = Join-Path $configDir "logs"
-$cacheDir = Join-Path $configDir "cache"
+$cacheDir = "D:\Model"
 $runtimeExe = Join-Path $scriptDir "ModelRuntime.exe"
 $publicSite = "https://jvust2.github.io/Model/"
 $bridgeUrl = "http://127.0.0.1:8765"
@@ -36,6 +36,7 @@ function Pick-Config {
 
     return [PSCustomObject]@{
         llamaServerPath = (Resolve-Path -LiteralPath $file.FileName).Path
+        cacheRoot = "D:\Model"
         bridgePort = 8765
         modelPort = 8080
         gpuLayers = 0
@@ -76,6 +77,10 @@ if (-not (Test-Config $config)) {
     Write-Host "First-run setup: choose llama-server.exe." -ForegroundColor Cyan
     $config = Pick-Config
     Save-Config $config
+}
+
+if ($config.cacheRoot) {
+    $cacheDir = [string]$config.cacheRoot
 }
 
 New-Item -ItemType Directory -Force -Path $logDir, $cacheDir | Out-Null

@@ -16,6 +16,11 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 try:
+    from .drive_cache import default_cache_root
+except ImportError:
+    from drive_cache import default_cache_root
+
+try:
     import py7zr  # bundled in the standalone Windows Runtime build
 except Exception:  # pragma: no cover - source-tree tests do not require it
     py7zr = None
@@ -44,7 +49,7 @@ def app_data_root() -> Path:
 
 
 VIDEO_ROOT = Path(
-    os.environ.get("MODEL_VIDEO_ROOT", str(app_data_root() / "video"))
+    os.environ.get("MODEL_VIDEO_ROOT", str(default_cache_root() / "video"))
 ).expanduser().resolve()
 COMFY_MANAGED_ROOT = VIDEO_ROOT / "comfyui"
 VIDEO_OUTPUT_ROOT = VIDEO_ROOT / "outputs"
