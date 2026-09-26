@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import threading
 import time
 import uuid
+import zipfile
 from collections import deque
 from pathlib import Path
 from typing import Callable
@@ -28,6 +30,14 @@ IMAGE_OUTPUT_ROOT = IMAGE_ROOT / "outputs"
 
 PONY_CHECKPOINT = "ponyDiffusionV6XL_v6StartWithThisOne.safetensors"
 PONY_MIN_BYTES = 6_000_000_000
+QWEN_UNET = "qwen-image-2.1-Q4_K_M.gguf"
+QWEN_TEXT_ENCODER = "qwen3vl_8b_int8_convrot.safetensors"
+QWEN_VAE = "qwen_image_2.1_vae_bf16.safetensors"
+
+COMFY_GGUF_ARCHIVE_URL = (
+    "https://github.com/city96/ComfyUI-GGUF/archive/refs/heads/main.zip"
+)
+COMFY_GGUF_ARCHIVE_NAME = "ComfyUI-GGUF-main.zip"
 
 ADAPTERS = {
     "pony_diffusion_v6_xl": {
@@ -38,8 +48,14 @@ ADAPTERS = {
             "pony-diffusion-v6-xl",
             "snupihog__pony_diffusion_v6_xl",
         ),
-        "checkpoint": PONY_CHECKPOINT,
-        "min_bytes": PONY_MIN_BYTES,
+        "workflow_kind": "pony_sdxl",
+        "artifacts": {
+            "checkpoint": {
+                "name": PONY_CHECKPOINT,
+                "min_bytes": PONY_MIN_BYTES,
+                "directories": ("checkpoints",),
+            },
+        },
         "min_vram_mb": 8 * 1024,
         "min_disk_free_gb": 10.0,
         "defaults": {
@@ -50,8 +66,60 @@ ADAPTERS = {
             "clip_skip": 2,
             "sampler_name": "euler_ancestral",
             "scheduler": "normal",
+            "size_step": 64,
+            "min_size": 512,
         },
-    }
+    },
+    "qwen_image_2_1_int8": {
+        "label": "Qwen-Image-2.1 INT8 / GGUF",
+        "match": (
+            "qwen_image_2_1_int8",
+            "qwen-image-2.1",
+            "qwen image 2.1",
+        ),
+        "workflow_kind": "qwen_image_2_1",
+        "requires_comfy_gguf": True,
+        "required_nodes": (
+            "UnetLoaderGGUF",
+            "CLIPLoader",
+            "VAELoader",
+            "TextEncodeQwenImage21",
+            "EmptyLatentImage",
+            "KSampler",
+            "VAEDecode",
+            "SaveImage",
+        ),
+        "artifacts": {
+            "unet": {
+                "name": QWEN_UNET,
+                "min_bytes": 4_500_000_000,
+                "directories": ("unet", "diffusion_models"),
+            },
+            "clip": {
+                "name": QWEN_TEXT_ENCODER,
+                "min_bytes": 9_000_000_000,
+                "directories": ("text_encoders",),
+            },
+            "vae": {
+                "name": QWEN_VAE,
+                "min_bytes": 650_000_000,
+                "directories": ("vae",),
+            },
+        },
+        "min_vram_mb": 14 * 1024,
+        "min_disk_free_gb": 18.0,
+        "defaults": {
+            "width": 768,
+            "height": 768,
+            "steps": 20,
+            "cfg": 1.0,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "size_step": 32,
+            "min_size": 256,
+            "resolution": 1024,
+        },
+    },
 }
 
 
@@ -82,29 +150,55 @@ def _normalize_file_payload(item: dict) -> dict:
     }
 
 
-def checkpoint_spec(payload: dict, adapter: dict) -> DriveFileSpec:
+def artifact_specs(payload: dict, adapter: dict) -> dict[str, DriveFileSpec]:
     files = payload.get("files")
     if not isinstance(files, list) or not files:
-        raise ValueError("图像任务缺少 Drive 模型文件列表；请重新扫描 AI-Model-Vault。")
+        raise ValueError("图像任务缺少 Drive 模型文件列表；请重新扫描模型源。")
 
-    expected = str(adapter["checkpoint"]).lower()
+    declared = adapter.get("artifacts") or {}
+    if not isinstance(declared, dict) or not declared:
+        raise ValueError("图像适配器没有声明固定模型文件。")
+
+    by_name = {}
     for raw in files:
         if not isinstance(raw, dict):
             continue
         name = str(raw.get("file_name") or raw.get("name") or "").strip()
-        if name.lower() != expected:
-            continue
-        spec = DriveFileSpec.from_payload(_normalize_file_payload(raw))
-        if spec.size is None:
-            raise ValueError("Pony checkpoint 缺少 Drive 文件大小，无法确认完整性。")
-        if spec.size < int(adapter["min_bytes"]):
-            raise ValueError("Pony checkpoint 文件大小异常，Drive 文件可能不完整。")
-        return spec
+        if name:
+            by_name[name.lower()] = raw
 
-    raise FileNotFoundError(
-        f"Drive 模型包中没有找到固定 checkpoint：{adapter['checkpoint']}。"
-        "不会仅凭 .safetensors 扩展名选择其他文件。"
-    )
+    result: dict[str, DriveFileSpec] = {}
+    missing = []
+    for role, requirement in declared.items():
+        expected = str(requirement.get("name") or "").strip()
+        raw = by_name.get(expected.lower())
+        if not raw:
+            missing.append(expected)
+            continue
+
+        spec = DriveFileSpec.from_payload(_normalize_file_payload(raw))
+        minimum = int(requirement.get("min_bytes") or 0)
+        if spec.size is None:
+            raise ValueError(f"{expected} 缺少 Drive 文件大小，无法确认完整性。")
+        if minimum and spec.size < minimum:
+            raise ValueError(f"{expected} 文件大小异常，Drive 文件可能不完整。")
+        result[str(role)] = spec
+
+    if missing:
+        raise FileNotFoundError(
+            "Drive 模型包缺少固定文件：" + "、".join(missing)
+        )
+    return result
+
+
+def checkpoint_spec(payload: dict, adapter: dict) -> DriveFileSpec:
+    """Compatibility helper used by older tests/callers."""
+    specs = artifact_specs(payload, adapter)
+    if "checkpoint" in specs:
+        return specs["checkpoint"]
+    if "unet" in specs:
+        return specs["unet"]
+    return next(iter(specs.values()))
 
 
 def _bounded_int(payload: dict, key: str, default: int, minimum: int, maximum: int, step: int | None = None) -> int:
@@ -129,7 +223,7 @@ def _bounded_float(payload: dict, key: str, default: float, minimum: float, maxi
     return value
 
 
-def build_prompt(checkpoint_name: str, payload: dict, adapter: dict, job_id: str) -> dict:
+def build_prompt(model_files, payload: dict, adapter: dict, job_id: str) -> dict:
     prompt = str(payload.get("prompt") or "").strip()
     if not prompt:
         raise ValueError("请先填写图像提示词。")
@@ -141,14 +235,16 @@ def build_prompt(checkpoint_name: str, payload: dict, adapter: dict, job_id: str
         raise ValueError("负面提示词过长。")
 
     defaults = adapter["defaults"]
-    width = _bounded_int(payload, "width", defaults["width"], 512, 1536, 64)
-    height = _bounded_int(payload, "height", defaults["height"], 512, 1536, 64)
+    size_step = int(defaults.get("size_step") or 64)
+    min_size = int(defaults.get("min_size") or 512)
+    width = _bounded_int(payload, "width", defaults["width"], min_size, 1536, size_step)
+    height = _bounded_int(payload, "height", defaults["height"], min_size, 1536, size_step)
     steps = _bounded_int(payload, "steps", defaults["steps"], 1, 80)
     cfg = _bounded_float(payload, "cfg", defaults["cfg"], 0.0, 20.0)
 
     seed_raw = payload.get("seed")
-    if seed_raw in (None, ""):
-        seed = int.from_bytes(os.urandom(8), "big") & ((1 << 63) - 1)
+    if seed_raw in (None, "", -1, "-1"):
+        seed = int.from_bytes(os.urandom(8), "big") & ((1 << 53) - 1)
     else:
         try:
             seed = int(seed_raw)
@@ -157,6 +253,75 @@ def build_prompt(checkpoint_name: str, payload: dict, adapter: dict, job_id: str
         if seed < 0 or seed >= (1 << 63):
             raise ValueError("seed must be between 0 and 2^63-1.")
 
+    workflow_kind = str(adapter.get("workflow_kind") or "pony_sdxl")
+    if workflow_kind == "qwen_image_2_1":
+        names = model_files if isinstance(model_files, dict) else {}
+        unet_name = str(names.get("unet") or QWEN_UNET)
+        clip_name = str(names.get("clip") or QWEN_TEXT_ENCODER)
+        vae_name = str(names.get("vae") or QWEN_VAE)
+        return {
+            "1": {
+                "class_type": "UnetLoaderGGUF",
+                "inputs": {"unet_name": unet_name},
+            },
+            "2": {
+                "class_type": "CLIPLoader",
+                "inputs": {
+                    "clip_name": clip_name,
+                    "type": "qwen_image",
+                    "device": "default",
+                },
+            },
+            "3": {
+                "class_type": "VAELoader",
+                "inputs": {"vae_name": vae_name},
+            },
+            "4": {
+                "class_type": "TextEncodeQwenImage21",
+                "inputs": {
+                    "clip": ["2", 0],
+                    "prompt": prompt,
+                    "negative_prompt": negative,
+                    "resolution": int(defaults.get("resolution") or 1024),
+                },
+            },
+            "5": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+            },
+            "6": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["4", 0],
+                    "negative": ["4", 1],
+                    "latent_image": ["5", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "sampler_name": defaults["sampler_name"],
+                    "scheduler": defaults["scheduler"],
+                    "denoise": 1.0,
+                },
+            },
+            "7": {
+                "class_type": "VAEDecode",
+                "inputs": {"samples": ["6", 0], "vae": ["3", 0]},
+            },
+            "8": {
+                "class_type": "SaveImage",
+                "inputs": {
+                    "images": ["7", 0],
+                    "filename_prefix": f"image/qwen_{job_id}",
+                },
+            },
+        }
+
+    checkpoint_name = (
+        str(model_files)
+        if isinstance(model_files, str)
+        else str((model_files or {}).get("checkpoint") or PONY_CHECKPOINT)
+    )
     clip_layer = -abs(int(defaults.get("clip_skip", 2)))
 
     return {
@@ -376,29 +541,124 @@ class ImageRuntime:
             self.downloaded_bytes = int(downloaded)
             self.download_total_bytes = int(total) if total else None
 
-    def _install_checkpoint(self, comfy_root: Path, spec: DriveFileSpec, token: str) -> str:
-        self._set_phase("downloading_model", f"准备 Drive checkpoint：{spec.name}")
+    def _install_artifact(
+        self,
+        comfy_root: Path,
+        spec: DriveFileSpec,
+        token: str,
+        directories,
+    ) -> str:
+        self._set_phase("downloading_model", f"准备 Drive 模型文件：{spec.name}")
         with self.lock:
             self.current_file = spec.name
         cached = self.drive_cache.download(spec, token, progress=self._progress)
 
-        destination = (
-            comfy_root / "ComfyUI" / "models" / "checkpoints" / spec.name
-        )
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        for directory in tuple(directories or ()):
+            destination = (
+                comfy_root / "ComfyUI" / "models" / str(directory) / spec.name
+            )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                if destination.stat().st_size == cached.stat().st_size:
+                    continue
+                destination.unlink()
+            try:
+                os.link(cached, destination)
+                self.log(f"Linked model into ComfyUI: {directory}/{destination.name}")
+            except OSError:
+                shutil.copy2(cached, destination)
+                self.log(f"Copied model into ComfyUI: {directory}/{destination.name}")
+        return spec.name
 
-        if destination.exists():
-            if destination.stat().st_size == cached.stat().st_size:
-                return destination.name
-            destination.unlink()
+    def _ensure_comfy_gguf(self, comfy_root: Path, python: Path) -> bool:
+        custom_root = comfy_root / "ComfyUI" / "custom_nodes"
+        target = custom_root / "ComfyUI-GGUF"
+        marker = target / ".jvust_requirements_ok"
+        installed_new = False
 
-        try:
-            os.link(cached, destination)
-            self.log(f"Linked checkpoint into ComfyUI: {destination.name}")
-        except OSError:
-            shutil.copy2(cached, destination)
-            self.log(f"Copied checkpoint into ComfyUI: {destination.name}")
-        return destination.name
+        if not (target / "__init__.py").exists():
+            self._set_phase(
+                "preparing_comfy_gguf",
+                "首次使用 Qwen-Image：安装 ComfyUI-GGUF 节点",
+            )
+            custom_root.mkdir(parents=True, exist_ok=True)
+            download_root = IMAGE_ROOT / "downloads"
+            download_root.mkdir(parents=True, exist_ok=True)
+            archive = download_root / COMFY_GGUF_ARCHIVE_NAME
+            self.comfy._download(
+                COMFY_GGUF_ARCHIVE_URL,
+                archive,
+                COMFY_GGUF_ARCHIVE_NAME,
+            )
+
+            extract_root = download_root / ("gguf-node-" + uuid.uuid4().hex)
+            extract_root.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(archive, "r") as zf:
+                zf.extractall(extract_root)
+            candidates = [
+                path
+                for path in extract_root.iterdir()
+                if path.is_dir() and path.name.lower().startswith("comfyui-gguf")
+            ]
+            if not candidates:
+                shutil.rmtree(extract_root, ignore_errors=True)
+                raise RuntimeError("ComfyUI-GGUF 下载完成，但压缩包结构无法识别。")
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            shutil.move(str(candidates[0]), str(target))
+            shutil.rmtree(extract_root, ignore_errors=True)
+            archive.unlink(missing_ok=True)
+            installed_new = True
+
+        if not marker.exists():
+            requirements = target / "requirements.txt"
+            command = [
+                str(python),
+                "-s",
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+            ]
+            if requirements.exists():
+                command.extend(["-r", str(requirements)])
+            else:
+                command.extend(["gguf>=0.13.0", "sentencepiece", "protobuf"])
+            result = subprocess.run(
+                command,
+                cwd=str(comfy_root),
+                capture_output=True,
+                text=True,
+                timeout=900,
+                check=False,
+                creationflags=(
+                    subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0
+                ),
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "ComfyUI-GGUF 依赖安装失败："
+                    + (result.stderr or result.stdout or "unknown pip error")[-3000:]
+                )
+            marker.write_text("ok\n", encoding="utf-8")
+            installed_new = True
+
+        return installed_new
+
+    def _verify_required_nodes(self, adapter: dict) -> None:
+        required = tuple(adapter.get("required_nodes") or ())
+        if not required:
+            return
+        info = json_request(COMFY_BASE + "/object_info", timeout=60)
+        missing = [name for name in required if name not in info]
+        if missing:
+            raise RuntimeError(
+                "ComfyUI 缺少 Qwen-Image 所需节点："
+                + "、".join(missing)
+                + "。请更新 Runtime/ComfyUI-GGUF 后重试。"
+            )
 
     def _history(self, prompt_id: str) -> dict | None:
         try:
@@ -466,16 +726,44 @@ class ImageRuntime:
     def _run_job(self, job_id: str, adapter_key: str, payload: dict) -> None:
         try:
             adapter = ADAPTERS[adapter_key]
-            spec = checkpoint_spec(payload, adapter)
+            specs = artifact_specs(payload, adapter)
             token = self.token_provider()
 
             self._set_phase("preparing_comfyui", "正在准备 managed ComfyUI")
-            portable, _, _ = self.comfy._ensure_comfyui()
-            checkpoint_name = self._install_checkpoint(portable, spec, token)
-            self.comfy._ensure_comfyui_server()
+            portable, python, _ = self.comfy._ensure_comfyui()
 
-            self._set_phase("building_workflow", "正在构建 Pony SDXL 图像工作流")
-            prompt = build_prompt(checkpoint_name, payload, adapter, job_id)
+            installed_names = {}
+            for role, spec in specs.items():
+                requirement = (adapter.get("artifacts") or {}).get(role) or {}
+                installed_names[role] = self._install_artifact(
+                    portable,
+                    spec,
+                    token,
+                    requirement.get("directories") or (),
+                )
+
+            if adapter.get("requires_comfy_gguf"):
+                installed_new = self._ensure_comfy_gguf(portable, python)
+                if installed_new:
+                    process = self.comfy.process
+                    if process and process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        self.comfy.process = None
+
+            self.comfy._ensure_comfyui_server()
+            self._verify_required_nodes(adapter)
+
+            label = (
+                "正在构建 Qwen-Image 2.1 GGUF 工作流"
+                if adapter.get("workflow_kind") == "qwen_image_2_1"
+                else "正在构建 Pony SDXL 图像工作流"
+            )
+            self._set_phase("building_workflow", label)
+            prompt = build_prompt(installed_names, payload, adapter, job_id)
 
             self._set_phase("queued", "正在提交图像任务")
             prompt_id = self.comfy._queue_prompt(prompt)
