@@ -8,7 +8,7 @@ Build a Drive-first AI model website where Google Drive remains the model vault,
 
 ## Current state
 
-Status: **v0.11 model hardware preflight in validation**
+Status: **v0.12 linked Qwen-Image enablement in validation**
 
 Verified on the live site before this branch:
 
@@ -48,6 +48,9 @@ Implemented on this branch:
 - Video workflow dependencies are downloaded lazily and cached locally.
 - Workflow graph is pruned to the selected output, so Hunyuan's optional 1080p SR branch is not downloaded for the base 720p output.
 - Pony Diffusion V6 XL now has a dedicated web image adapter using the verified Drive checkpoint and a fixed SDXL ComfyUI graph.
+- Qwen-Image 2.1 GGUF now has a dedicated linked-Drive adapter using its existing root-folder weights; the website mounts that external Drive tree into the in-memory model index without duplicating files.
+- Qwen adapter validates all three fixed artifacts (GGUF UNet, Qwen3-VL text encoder, VAE), installs ComfyUI-GGUF on first use, and uses the proven Qwen Image API graph from the existing notebook.
+- Mixed image packages containing `.gguf` are routed by registry/runtime metadata rather than misclassified as llama.cpp chat models.
 - Runtime exposes `/v1/image/generate`, `/v1/image/status`, `/v1/image/stop` and image-file return.
 - Image/video direct-use actions are gated by managed-ComfyUI hardware status before large downloads begin.
 - Runtime hardware status now reports nvidia-smi detection, CUDA version, GPU/VRAM, system RAM and cache-disk free space.
@@ -99,7 +102,7 @@ Implemented on this branch:
 | Backend | Detection | Automatic launch |
 | --- | --- | --- |
 | llama.cpp | yes | yes, via Drive API cache |
-| ComfyUI | managed/runtime detection + hardware gate | Pony Diffusion V6 XL image + Wan2.2 TI2V 5B + HunyuanVideo 1.5 T2V on supported NVIDIA Windows hardware |
+| ComfyUI | managed/runtime detection + hardware gate | Pony Diffusion V6 XL + Qwen-Image 2.1 GGUF image, Wan2.2 TI2V 5B + HunyuanVideo 1.5 T2V on supported NVIDIA Windows hardware |
 | Diffusers | yes | not yet |
 | Transformers | yes | not yet |
 | PyTorch | yes | not yet |
@@ -108,8 +111,8 @@ Implemented on this branch:
 
 ## Next technical steps
 
-1. Validate Pony Diffusion V6 XL end-to-end on a supported NVIDIA Windows Runtime and record VRAM/RAM/disk observations.
-2. Verify FLUX.2 Klein 4B FP8 companion components and then add its fixed image adapter without redownloading an unrelated full repository.
+1. Validate Pony Diffusion V6 XL and Qwen-Image 2.1 GGUF end-to-end on a supported NVIDIA Windows Runtime and record VRAM/RAM/disk observations.
+2. Verify FLUX.2 Klein 4B FP8 companion components and then add its fixed image adapter; keep using existing Drive assets or linked sources rather than duplicate large model trees.
 3. Add at least one real small chat GGUF to the new `llm` Vault category; the preflight/cache/llama.cpp path is ready, but no chat GGUF currently exists in the canonical vault.
 4. Add GOT-OCR, Qwen Embedding, Qwen Reranker and Chronos/TimesFM weights to their new Vault categories, then enable their task adapters/workspaces; Drive audit currently finds no reusable weight copies.
 5. Add remote NVIDIA Runtime routing for AMD/no-NVIDIA clients while preserving the same web task API.

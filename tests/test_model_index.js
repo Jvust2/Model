@@ -134,4 +134,68 @@ assert.strictEqual(missing.fileCount, 0);
 assert.strictEqual(missing.directLaunch, false);
 assert.strictEqual(missing.workspace, "timeseries");
 
+
+const linked = folder("Qwen-Image-2.1-GGUF", "", [
+  file(
+    "unet",
+    "qwen-image-2.1-Q4_K_M.gguf",
+    "qwen-image-2.1-Q4_K_M.gguf",
+    4604557984
+  ),
+  folder("text_encoders", "text_encoders", [
+    file(
+      "clip",
+      "qwen3vl_8b_int8_convrot.safetensors",
+      "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+      9350798360
+    )
+  ]),
+  folder("vae", "vae", [
+    file(
+      "vae",
+      "qwen_image_2.1_vae_bf16.safetensors",
+      "vae/qwen_image_2.1_vae_bf16.safetensors",
+      675509688
+    )
+  ])
+]);
+
+const linkedRegistry = {
+  schema_version: "1.0.0",
+  models: [
+    {
+      id: "qwen_image_2_1_int8",
+      name: "Qwen-Image-2.1 INT8",
+      repo: "Qwen/Qwen-Image-2.1",
+      category: "image",
+      recommended_runtime: ["ComfyUI"],
+      device_fit: {}
+    }
+  ]
+};
+
+const linkedRoot = folder("AI-Model-Vault", "", []);
+assert.strictEqual(
+  window.DriveModelIndex.mountLinkedTree(linkedRoot, linked, "image_base"),
+  true
+);
+assert.strictEqual(
+  window.DriveModelIndex.mountLinkedTree(linkedRoot, linked, "image_base"),
+  false
+);
+const linkedPackages = window.DriveModelIndex.flattenPackages(
+  linkedRoot,
+  linkedRegistry
+);
+const qwenImage = linkedPackages.find(item => item.id === "qwen_image_2_1_int8");
+assert.ok(qwenImage);
+assert.strictEqual(qwenImage.vaultMissing, false);
+assert.strictEqual(qwenImage.backend, "ComfyUI");
+assert.strictEqual(qwenImage.workspace, "image-generation");
+assert.strictEqual(qwenImage.fileCount, 3);
+assert.strictEqual(
+  qwenImage.packagePath,
+  "image_base/Qwen-Image-2.1-GGUF"
+);
+
 console.log("model-index package tests passed");

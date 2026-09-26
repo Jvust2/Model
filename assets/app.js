@@ -14,6 +14,14 @@
   let selectedVideoModel = null;
   let videoPollTimer = null;
 
+  const LINKED_MODEL_FOLDERS = [
+    {
+      modelId: "qwen_image_2_1_int8",
+      folderName: "Qwen-Image-2.1-GGUF",
+      categoryRoot: "image_base"
+    }
+  ];
+
   const $ = id => document.getElementById(id);
 
   function setStatus(text) {
@@ -518,10 +526,44 @@
     ) {
       return {
         id: "pony_diffusion_v6_xl",
-        checkpoint: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
-        minBytes: 6000000000,
+        artifacts: [
+          {
+            role: "checkpoint",
+            name: "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
+            minBytes: 6000000000
+          }
+        ],
         minVramMb: 8 * 1024,
         minDiskFreeGb: 10
+      };
+    }
+
+    if (
+      hay.includes("qwen_image_2_1_int8") ||
+      hay.includes("qwen-image-2.1") ||
+      hay.includes("qwen image 2.1")
+    ) {
+      return {
+        id: "qwen_image_2_1_int8",
+        artifacts: [
+          {
+            role: "unet",
+            name: "qwen-image-2.1-Q4_K_M.gguf",
+            minBytes: 4500000000
+          },
+          {
+            role: "clip",
+            name: "qwen3vl_8b_int8_convrot.safetensors",
+            minBytes: 9000000000
+          },
+          {
+            role: "vae",
+            name: "qwen_image_2.1_vae_bf16.safetensors",
+            minBytes: 650000000
+          }
+        ],
+        minVramMb: 14 * 1024,
+        minDiskFreeGb: 18
       };
     }
 
@@ -531,24 +573,47 @@
   function imageArtifactState(model, adapter) {
     if (!adapter) return { ready: false, detail: "没有图像适配器" };
     const files = Array.isArray(model && model.files) ? model.files : [];
-    const expected = String(adapter.checkpoint || "").toLowerCase();
-    const match = files.find(file =>
-      String(file && file.name || "").toLowerCase() === expected
-    );
-    if (!match) {
+    const artifacts = Array.isArray(adapter.artifacts) ? adapter.artifacts : [];
+    if (!artifacts.length) {
+      return { ready: false, detail: "图像适配器没有声明固定模型文件" };
+    }
+
+    const missing = [];
+    const invalid = [];
+    for (const artifact of artifacts) {
+      const expected = String(artifact.name || "").toLowerCase();
+      const match = files.find(file =>
+        String(file && file.name || "").toLowerCase() === expected
+      );
+      if (!match) {
+        missing.push(artifact.name);
+        continue;
+      }
+      const size = Number(match.size || 0);
+      if (
+        !Number.isFinite(size) ||
+        size < Number(artifact.minBytes || 0)
+      ) {
+        invalid.push(artifact.name);
+      }
+    }
+
+    if (missing.length) {
       return {
         ready: false,
-        detail: "Drive 未发现固定 checkpoint：" + adapter.checkpoint
+        detail: "Drive 缺少固定文件：" + missing.join("、")
       };
     }
-    const size = Number(match.size || 0);
-    if (!Number.isFinite(size) || size < Number(adapter.minBytes || 0)) {
+    if (invalid.length) {
       return {
         ready: false,
-        detail: "Drive checkpoint 大小异常，可能不完整"
+        detail: "Drive 文件大小异常：" + invalid.join("、")
       };
     }
-    return { ready: true, detail: "固定 checkpoint 已确认" };
+    return {
+      ready: true,
+      detail: artifacts.length + " 个固定模型文件已确认"
+    };
   }
 
   function managedComfyHardware(adapter = null) {
@@ -1210,6 +1275,43 @@
         rootId
       );
 
+      let linkedFolders = 0;
+      const canonicalModels = window.DriveModelIndex.flattenPackages(
+        result.tree,
+        registry
+      );
+      for (const linked of LINKED_MODEL_FOLDERS) {
+        const canonical = canonicalModels.find(
+          item => item.id === linked.modelId && !item.vaultMissing
+        );
+        if (canonical) continue;
+
+        try {
+          const found = await window.DriveModelClient.findFolderByName(
+            accessToken,
+            linked.folderName,
+            "root"
+          );
+          if (!found.folder) continue;
+          setStatus("正在链接 Drive 模型目录 · " + linked.folderName);
+          const linkedResult = await window.DriveModelClient.scanModelTree(
+            accessToken,
+            found.folder.id
+          );
+          if (
+            window.DriveModelIndex.mountLinkedTree(
+              result.tree,
+              linkedResult.tree,
+              linked.categoryRoot
+            )
+          ) {
+            linkedFolders += 1;
+          }
+        } catch (error) {
+          console.warn("链接模型目录失败：", linked.folderName, error);
+        }
+      }
+
       window.DriveModelIndex.saveSnapshot(
         result.rootFolder,
         result.tree,
@@ -1236,7 +1338,8 @@
           result.modelFiles +
           " 权重文件 · " +
           models.length +
-          " 模型包"
+          " 模型包" +
+          (linkedFolders ? " · " + linkedFolders + " 个链接目录" : "")
       );
     } catch (error) {
       showError(error);
@@ -1419,7 +1522,7 @@
 
   $("installRuntimeBtn").addEventListener("click", () => {
     window.open(
-      "https://github.com/Jvust2/Model#one-time-windows-install",
+      "https://github.com/Jvust/Model#one-time-windows-install",
       "_blank",
       "noopener,noreferrer"
     );

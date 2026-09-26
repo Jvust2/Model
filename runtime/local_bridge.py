@@ -24,7 +24,7 @@ try:
     from .image_runtime import (
         ImageRuntime,
         adapter_for as image_adapter_for,
-        checkpoint_spec as image_checkpoint_spec,
+        artifact_specs as image_artifact_specs,
         managed_comfy_hardware,
     )
     from .video_runtime import (
@@ -41,7 +41,7 @@ except ImportError:
     from image_runtime import (
         ImageRuntime,
         adapter_for as image_adapter_for,
-        checkpoint_spec as image_checkpoint_spec,
+        artifact_specs as image_artifact_specs,
         managed_comfy_hardware,
     )
     from video_runtime import (
@@ -92,6 +92,7 @@ MODEL_CHAT_TIMEOUT = positive_float_env("MODEL_CHAT_TIMEOUT", 600.0)
 
 DEFAULT_ORIGINS = ",".join(
     [
+        "https://jvust.github.io",
         "https://jvust2.github.io",
         "http://127.0.0.1:8000",
         "http://localhost:8000",
@@ -700,7 +701,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 11})
+            self._json(200, {"ok": True, "service": "Drive Model Local Runtime", "version": 12})
             return
 
         if path == "/v1/backends":
@@ -733,7 +734,7 @@ class Handler(BaseHTTPRequestHandler):
                     "video": VIDEO.snapshot(),
                     "image": IMAGE.snapshot(),
                     "hardware": runtime_hardware_snapshot(),
-                    "runtime_version": 11,
+                    "runtime_version": 12,
                 }
             )
             self._json(200, payload)
@@ -851,11 +852,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 if image_match:
                     try:
-                        image_checkpoint_spec(payload, image_match[1])
+                        image_specs = image_artifact_specs(payload, image_match[1])
                         plan["artifact_present"] = True
                         weight_detail = (
-                            "已确认固定 checkpoint："
-                            + str(image_match[1]["checkpoint"])
+                            "已确认固定模型文件："
+                            + "、".join(spec.name for spec in image_specs.values())
                         )
                     except (FileNotFoundError, ValueError) as error:
                         plan["artifact_present"] = False
@@ -1069,7 +1070,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print("Drive Model Local Runtime v0.11")
+    print("Drive Model Local Runtime v0.12")
     print(f"Bridge: http://{HOST}:{BRIDGE_PORT}")
     print("Drive source: Google Drive API (no desktop mount required)")
     print("Cache root:", DRIVE_CACHE.root)

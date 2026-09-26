@@ -7,7 +7,7 @@ from typing import Any
 # is scanned by the website; this audit snapshot only records what was missing
 # from AI-Model-Vault on 2026-09-26.
 MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "qwen_image_2_1_int8": {"availability": "adapter_required", "adapter": "ComfyUI/Diffusers", "reason": "图像工作流适配器尚未接通。"},
+    "qwen_image_2_1_int8": {"availability": "automatic", "adapter": "ComfyUI + ComfyUI-GGUF", "reason": "已接入 Qwen-Image 2.1 GGUF 三文件工作流；网页可链接 Drive 根目录现有模型文件夹，无需复制权重。"},
     "flux_1_dev": {"availability": "incomplete", "adapter": "ComfyUI/Diffusers", "reason": "Drive 缺少 FLUX.1-dev 主权重。"},
     "flux_1_kontext_dev": {"availability": "incomplete", "adapter": "ComfyUI/Diffusers", "reason": "Drive 缺少 FLUX.1-Kontext-dev 主权重或依赖。"},
     "flux_1_krea_dev": {"availability": "incomplete", "adapter": "ComfyUI/Diffusers", "reason": "Drive 缺少 FLUX.1-Krea-dev 主权重。"},
@@ -35,6 +35,8 @@ MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
     "webnovel_writer_27b_zh": {"availability": "automatic", "adapter": "llama.cpp", "reason": "GGUF 写作模型已接入。"},
     "creative_writing_4b_q8": {"availability": "automatic", "adapter": "llama.cpp", "reason": "GGUF 写作模型已接入。"},
 }
+
+_LINKED_MODEL_SOURCES = {"qwen_image_2_1_int8"}
 
 _MISSING_FROM_VAULT = {
     "qwen_image_2_1_int8",
@@ -71,7 +73,13 @@ def capability_for(model_id: str | None = None, name: str | None = None, categor
         if candidate and candidate in MODEL_CAPABILITIES:
             item = dict(MODEL_CAPABILITIES[candidate])
             item["model_id"] = candidate
-            item["vault_snapshot"] = "not_in_vault" if candidate in _MISSING_FROM_VAULT else "folder_present"
+            item["vault_snapshot"] = (
+                "linked_folder"
+                if candidate in _LINKED_MODEL_SOURCES
+                else "not_in_vault"
+                if candidate in _MISSING_FROM_VAULT
+                else "folder_present"
+            )
             item["label"] = _STATUS_LABELS.get(item["availability"], item["availability"])
             return item
 
@@ -100,6 +108,17 @@ def capability_for(model_id: str | None = None, name: str | None = None, categor
 
 def all_capabilities() -> list[dict[str, Any]]:
     return [
-        {**dict(value), "model_id": key, "label": _STATUS_LABELS.get(value["availability"], value["availability"]), "vault_snapshot": "not_in_vault" if key in _MISSING_FROM_VAULT else "folder_present"}
+        {
+            **dict(value),
+            "model_id": key,
+            "label": _STATUS_LABELS.get(value["availability"], value["availability"]),
+            "vault_snapshot": (
+                "linked_folder"
+                if key in _LINKED_MODEL_SOURCES
+                else "not_in_vault"
+                if key in _MISSING_FROM_VAULT
+                else "folder_present"
+            ),
+        }
         for key, value in MODEL_CAPABILITIES.items()
     ]

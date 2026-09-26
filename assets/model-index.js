@@ -233,16 +233,22 @@
       (entry && entry.recommended_runtime ? entry.recommended_runtime : [])
         .map(value => String(value).toLowerCase())
     );
+    const category = String(entry && entry.category || "");
 
-    if (extensions.has(".gguf") || runtimes.has("llama.cpp")) return "llama.cpp";
+    // Registry routing wins over a file extension for mixed model packages.
+    // Qwen-Image includes a GGUF diffusion model but is a ComfyUI image package,
+    // not a llama.cpp chat model.
+    if (runtimes.has("llama.cpp")) return "llama.cpp";
     if (runtimes.has("comfyui")) return "ComfyUI";
     if (runtimes.has("diffusers")) return "Diffusers";
+    if (extensions.has(".gguf") && ["llm", "reasoning", "code", "novel"].includes(category)) {
+      return "llama.cpp";
+    }
     if (runtimes.has("transformers")) return "Transformers";
     if (runtimes.has("pytorch")) return "PyTorch";
     if (extensions.has(".onnx")) return "ONNX Runtime";
     if (extensions.has(".tflite")) return "TFLite";
 
-    const category = String(entry && entry.category || "");
     if (["image", "image-edit", "image-anime", "image-nsfw", "video"].includes(category)) {
       return "ComfyUI";
     }
@@ -399,6 +405,62 @@
     });
   }
 
+  function mountLinkedTree(rootNode, linkedTree, categoryRoot) {
+    if (!rootNode || !linkedTree || !linkedTree.file) return false;
+    const category = String(categoryRoot || "").trim();
+    if (!category) return false;
+
+    const linkedRootName = String(linkedTree.file.name || "").trim();
+    if (!linkedRootName) return false;
+    const mountPath = category + "/" + linkedRootName;
+
+    function cloneWithPrefix(node, isRoot = false) {
+      const suffix = isRoot
+        ? ""
+        : String(node.relativePath || "").replace(/^\/+/, "");
+      return {
+        file: copyFile(node.file),
+        relativePath: suffix ? mountPath + "/" + suffix : mountPath,
+        scanned: node.scanned === true,
+        children: (node.children || [])
+          .map(child => cloneWithPrefix(child, false))
+          .filter(Boolean)
+      };
+    }
+
+    let categoryNode = (rootNode.children || []).find(
+      child =>
+        child &&
+        child.file &&
+        child.file.mimeType === "application/vnd.google-apps.folder" &&
+        child.relativePath === category
+    );
+
+    if (!categoryNode) {
+      categoryNode = {
+        file: {
+          id: "linked-category-" + category,
+          name: category,
+          mimeType: "application/vnd.google-apps.folder"
+        },
+        relativePath: category,
+        scanned: true,
+        children: []
+      };
+      rootNode.children = rootNode.children || [];
+      rootNode.children.push(categoryNode);
+    }
+
+    const existing = (categoryNode.children || []).find(
+      child => child && child.relativePath === mountPath
+    );
+    if (existing) return false;
+
+    categoryNode.children = categoryNode.children || [];
+    categoryNode.children.push(cloneWithPrefix(linkedTree, true));
+    return true;
+  }
+
   function countFolders(rootNode) {
     let count = 0;
     function walk(node) {
@@ -421,6 +483,7 @@
     isModelFile,
     loadSnapshot,
     matchRegistry,
+    mountLinkedTree,
     saveSnapshot,
     workspaceForCategory
   };

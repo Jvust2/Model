@@ -20,7 +20,7 @@ jobs:
           python-version: "3.11"
 
       - name: Check Python syntax
-        run: python -m py_compile runtime/local_bridge.py runtime/backends.py runtime/drive_cache.py runtime/video_runtime.py
+        run: python -m py_compile runtime/local_bridge.py runtime/backends.py runtime/drive_cache.py runtime/hardware.py runtime/image_runtime.py runtime/video_runtime.py
 
       - name: Run bridge unit tests
         run: python -m unittest discover -s tests -v
@@ -32,6 +32,7 @@ jobs:
           node --check assets/model-capabilities.js
           node --check assets/drive-client.js
           node --check assets/app.js
+          node --check assets/workspaces.js
           node --check sw.js
           node --check workers/drive-oauth-bridge.mjs
           node tests/test_model_index.js

@@ -9,6 +9,12 @@ class ModelCapabilityTests(unittest.TestCase):
         self.assertEqual(capability["availability"], "automatic")
         self.assertEqual(capability["adapter"], "llama.cpp")
 
+    def test_qwen_image_uses_linked_runtime_adapter(self):
+        capability = capability_for("qwen_image_2_1_int8")
+        self.assertEqual(capability["availability"], "automatic")
+        self.assertIn("ComfyUI", capability["adapter"])
+        self.assertEqual(capability["vault_snapshot"], "linked_folder")
+
     def test_pony_image_model_has_runtime_adapter(self):
         capability = capability_for("pony_diffusion_v6_xl")
         self.assertEqual(capability["availability"], "automatic")

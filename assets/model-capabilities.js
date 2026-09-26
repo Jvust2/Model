@@ -2,7 +2,7 @@
   "use strict";
 
   const states = {
-    qwen_image_2_1_int8: ["需要适配器", "图像工作流适配器尚未接通。"],
+    qwen_image_2_1_int8: ["可直接使用", "已接入 Qwen-Image 2.1 GGUF 三文件工作流；网页可链接 Drive 根目录现有模型文件夹，无需复制权重。"],
     flux_1_dev: ["Drive 文件不完整", "Drive 缺少 FLUX.1-dev 主权重。"],
     flux_1_kontext_dev: ["Drive 文件不完整", "Drive 缺少 FLUX.1-Kontext-dev 主权重或依赖。"],
     flux_1_krea_dev: ["Drive 文件不完整", "Drive 缺少 FLUX.1-Krea-dev 主权重。"],
