@@ -6,6 +6,23 @@ Google Drive is the canonical model vault. The website discovers model packages 
 
 **Google Drive for desktop is not required.**
 
+## Default chat bootstrap
+
+The Runtime chat path is already implemented, but the canonical Drive vault may still have no actual chat GGUF. In that state the model library shows **准备默认聊天模型** instead of pretending a registry-only model is runnable.
+
+The Drive artifact:
+
+    AI-Model-Vault/notebook_launchers/启动_Qwen3-0.6B_Q8_0_DriveFirst.ipynb
+
+prepares the official **Qwen3-0.6B Q8_0** GGUF as a small end-to-end validation model. It writes to:
+
+    AI-Model-Vault/llm/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf
+
+The notebook verifies the official SHA256 and the fixed GGUF header before writing `MODEL_READY.json`. After it completes, rescan the vault; the website can recognize an unregistered GGUF inside an explicit chat category and expose the normal llama.cpp **使用模型** action.
+
+This bootstrap model is for validating the local chat pipeline. It does not replace the larger registered Qwen / DeepSeek / Coder / writing models.
+
+See `docs/DEFAULT_CHAT_BOOTSTRAP.md` for the exact invariant and verification flow.
 ## Current flow
 
     Open Model website
